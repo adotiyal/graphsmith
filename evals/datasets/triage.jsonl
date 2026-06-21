@@ -1,0 +1,15 @@
+{"request": "Add a user login page with email and password", "expected": "feature"}
+{"request": "Build a dashboard that shows weekly active users", "expected": "feature"}
+{"request": "Let users export their data as CSV", "expected": "feature"}
+{"request": "Add dark mode to the settings screen", "expected": "feature"}
+{"request": "Fix the crash when a user logs out twice", "expected": "bugfix"}
+{"request": "The signup form 500s when the email already exists", "expected": "bugfix"}
+{"request": "Pagination shows the wrong total count, fix it", "expected": "bugfix"}
+{"request": "Login button does nothing on mobile Safari", "expected": "bugfix"}
+{"request": "Rename the UserService module to AccountsService", "expected": "refactor"}
+{"request": "Extract the email-sending code into a shared helper", "expected": "refactor"}
+{"request": "Split the giant views.py into per-resource modules", "expected": "refactor"}
+{"request": "Bump fastapi and pydantic to the latest versions", "expected": "chore"}
+{"request": "Update the README with setup instructions", "expected": "chore"}
+{"request": "Add a CODEOWNERS file and tighten the .gitignore", "expected": "chore"}
+{"request": "Pin the Docker base image to a specific digest", "expected": "chore"}

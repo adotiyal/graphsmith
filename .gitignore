@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets
+.env
+*.env
+
+# LangGraph checkpoints
+checkpoints.db
+
+# Cross-run learnings (local institutional memory; un-ignore to share across the team)
+learnings/
+
+# Product profile (company product context; un-ignore to share across the team)
+product/
+
+# Run traces (observability output, one JSONL per run)
+traces/
+
+# Workspace output (generated per feature run; recreated at runtime via project_ctx.ensure_repo).
+# Ignored as a whole — it contains its own nested .git for the managed project.
+workspace/
+
+# Local session artifacts (one-off backups / test inputs; not part of the platform)
+.madclub_backup/
+madclub_briefs/
+
+# Claude Code per-user settings (settings.json is shareable; *.local.json is personal)
+.claude/settings.local.json
+
+# OS
+.DS_Store

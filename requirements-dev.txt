@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0
+ruff>=0.6.0          # blocking E,F lint gate + the auto-fix/format and advisory quality layer
+mypy>=1.11.0         # advisory static type check in code_quality_report (non-blocking)
