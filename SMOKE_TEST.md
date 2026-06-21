@@ -1,11 +1,12 @@
-# Smoke-Test Runbook — Phases 0–1
+# Smoke-Test Runbook
 
-A step-by-step guide to validating the pipeline on your machine. The automated tests
-run with everything mocked (no key/Docker); the **live** run needs your API key, Docker,
-and the GitHub CLI.
+A step-by-step guide to validating the pipeline on your machine. The automated tests run
+with everything mocked (no key/Docker). The **live** run needs Docker; the LLM backend
+defaults to the **claude CLI** (subscription-billed, no API key) — set `LLM_BACKEND=api`
+for the metered API. The GitHub CLI is optional (only to open a real PR).
 
-> Why a runbook: the dev environment these were built in has no `ANTHROPIC_API_KEY`,
-> no Docker, and no `gh`, so the live end-to-end run must happen on your machine.
+> Why a runbook: the dev environment these were built in has no Docker or `gh`, so the
+> live end-to-end run must happen on your machine.
 
 ---
 
@@ -13,11 +14,10 @@ and the GitHub CLI.
 
 | Need | Check | Notes |
 |---|---|---|
-| Python 3.11 | `python3 --version` | |
-| Anthropic key | `echo $ANTHROPIC_API_KEY` | uses Haiku/Sonnet/**Opus** (Architect/Critic) |
-| Docker running | `docker ps` | engineer runs pytest in `python:3.11-slim` |
-| GitHub CLI | `gh auth status` | only needed for the PR step (ship node) |
-| git workspace | `cd workspace && git status` | `git init` + a remote if you want a real PR |
+| Python 3.11+ | `python3 --version` | |
+| LLM backend | `claude --version` | **default**: claude CLI ($0, no key). Or `LLM_BACKEND=api` + `ANTHROPIC_API_KEY` |
+| Docker running | `docker ps` | test + integration stages run in pinned slim/alpine images |
+| GitHub CLI | `gh auth status` | OPTIONAL — only to open a real PR (Ship no-ops without it) |
 
 ---
 
@@ -27,14 +27,15 @@ and the GitHub CLI.
 cd agentplatform
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt        # runtime deps + pytest
-export ANTHROPIC_API_KEY=sk-ant-...
+# LLM defaults to the claude CLI (no key needed). For the metered API instead:
+#   export LLM_BACKEND=api ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ## 2. Run the automated tests first (no key/Docker needed)
 
 ```bash
 pytest tests/ -q
-# expect: 336 passed, 3 skipped   (the 3 skipped are the live evals)
+# expect: 401 passed, 3 skipped   (the 3 skipped are the live evals)
 ```
 
 If this is red, **stop** — the architecture is broken; don't waste API spend on a live run.

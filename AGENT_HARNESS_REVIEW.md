@@ -1,5 +1,7 @@
 # Agent Harness Review
 
+> **Historical record (point-in-time).** For the current design see `ARCHITECTURE.md` and `CLAUDE.md`.
+
 Review of every agent's prompt + skill, thinking like the best human for each role.
 Each section: what's working, what's missing or broken, concrete fixes.
 

@@ -1,5 +1,8 @@
 # AgentPlatform — Improvement Plan
 
+> **Historical record (point-in-time).** Most items here are now shipped — for the
+> *current* design and status see `ARCHITECTURE.md`, `CLAUDE.md`, and `AI_NATIVE_ROADMAP.md`.
+
 **Goal:** evolve from a clean waterfall *scaffolding* tool into a system that produces
 **production-grade features** that can rival a strong human team.
 

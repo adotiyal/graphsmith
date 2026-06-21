@@ -15,17 +15,46 @@ npm install -g @anthropic-ai/claude-code   # + `claude` once to log in
 # or opt into the metered API instead:
 #   export LLM_BACKEND=api ANTHROPIC_API_KEY=your_key_here
 
-# 3. Pre-flight checks
-docker ps                    # Docker must be running
-gh auth status               # GitHub CLI must be authenticated
-cd workspace && git init && git remote add origin <your-repo-url> && cd ..
+# 3. Pre-flight: Docker must be running (used by the test + integration stages)
+docker ps
+# `gh auth status` is OPTIONAL — only needed to actually OPEN the PR; without it the
+# pipeline still completes and the Ship step no-ops. `workspace/` is created for you.
 
-# 4. Run
+# 4. Run — interactive (you answer gates/questions at the terminal)
 python main.py                          # build/extend the SINGLE persistent project
 python main.py --repo /path/to/repo     # extend an EXTERNAL repo instead
 python main.py --resume <project-id>    # resume an interrupted run
 # reset the project: rm -rf workspace/project
 ```
+
+### Run it from Claude Code (or any script)
+
+`main.py` blocks on `input()`. For non-interactive / automated driving — including
+**letting Claude Code itself drive the whole pipeline** — use `live_run.py`, which runs
+one segment per process and prints machine-readable markers:
+
+```bash
+python live_run.py start  --feature "Add user login with email + password"
+#   → runs to the first pause, prints  PAUSE {json}  (a ceo_qa question or an approval gate)
+python live_run.py answer --thread <id> --text "single-org only for v1"   # answer a question
+python live_run.py approve --thread <id>                                  # approve a gate
+python live_run.py reject  --thread <id> --feedback "..."                 # reject with feedback
+python live_run.py resume  --thread <id>                                  # continue after a pause/stall
+#   → ends with  DONE {json}  (overseer verdict, autonomy rate, artifact links)
+```
+
+State persists in `checkpoints.db` across invocations, so a driver (a human, a script, or
+Claude reading the `PAUSE`/`DONE` markers) can answer each pause and resume. This whole repo's
+own MadClub demo product was built this way — Claude driving `live_run.py` end-to-end.
+
+### Optional knobs (env vars, default OFF)
+
+| Env | Effect |
+|---|---|
+| `LLM_BACKEND=api` | use the metered API instead of the zero-cost claude CLI |
+| `LLM_WEB_SEARCH=1` | let the architect/surveyor verify current library versions/CVEs via web search |
+| `QUALITY_GATE=report` / `block` | measure test coverage (report); also block over-complex code (block) |
+| `LLM_THINKING=adaptive` | adaptive reasoning-effort per tier (api backend) |
 
 ## How it works
 
@@ -146,10 +175,15 @@ The pipeline is not a one-pass waterfall — it verifies its own work:
   `shell=True`, hardcoded secrets, unsafe deserialization, …). Findings appear in the QA
   sign-off and are printed at the PR gate so you see them before merge.
 - **Code quality:** generated Python is auto-formatted and import-sorted (ruff) before the
-  lint gate, then an *advisory* report (type errors, cyclomatic complexity, lint) plus a
-  frontend-tooling check (ESLint / Prettier / strict TS) is surfaced at the PR gate — so
-  the code stays clean, readable and debuggable without destabilizing the engineer⇄QA loop.
-  Future direction lives in `AI_NATIVE_ROADMAP.md`.
+  lint gate, then an *advisory* report (type errors, cyclomatic complexity, lint), a
+  frontend-tooling check (ESLint / Prettier / strict TS), and a **dependency lock** (every
+  third-party import must be a declared dependency — kills the "builds locally, breaks in a
+  clean install" class) are surfaced at the PR gate — so the code stays clean, reproducible,
+  and debuggable without destabilizing the engineer⇄QA loop. An opt-in soft gate
+  (`QUALITY_GATE`) adds a coverage report and a complexity block. Roadmap in `AI_NATIVE_ROADMAP.md`.
+- **Reliable routing:** the routing-critical decisions (triage lane, critic pass/fail,
+  design-QA verdict) are validated structured objects with a corrective retry and a safe
+  default — not regexes over prose — so a malformed reply can never silently misroute a run.
 - **Sandboxed tests:** test runs are resource-limited in Docker (memory/CPU/PID caps).
 - **Overseer:** every run is traced (`traces/<id>.jsonl`, tokens/latency) and audited at the
   end by a deterministic **overseer** (`evals/`) — invariants (engineer never touched the
@@ -159,6 +193,11 @@ The pipeline is not a one-pass waterfall — it verifies its own work:
   actual node **path with loops**, where **time** went, **model spend by tier**, and every
   **rework** cycle — so you can *see* what the agents did at a glance. The deeper roadmap of
   observability + 2026-Claude capabilities lives in `AI_NATIVE_ROADMAP.md`.
+- **Autonomy metric:** every run reports an `autonomy_rate` — how much you had to intervene
+  (clarifications + gate rejects + hand-fixes) versus the agents running unaided. **1.0 means
+  you only rubber-stamped the mandatory gates;** every reject/clarification/hand-fix drags it
+  down. It's the headline KPI on the flight recorder and the number to drive toward 1.0 — the
+  single best measure of whether the platform is getting more autonomous over time.
 
 ## Pre-flight checklist
 

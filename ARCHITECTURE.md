@@ -104,6 +104,9 @@ CEO ─► Triage ─(feature)─► PM ─► [PRD gate] ─► Surveyor ─►
                                                   Integration ─fail(≤2)─► Engineer
                                             (compose up + smoke + e2e)
                                                        pass ▼  (or cap hit, red report)
+                                                   Design QA ─misaligned─► Engineer
+                                            (vision: live app vs mockup, single-shot)
+                                                       pass ▼
                                                      [PR gate] ─approve─► Ship ─► DevOps ─► END
                                                          │ reject
                                                          └──► Engineer
@@ -546,6 +549,12 @@ evals** ("is the output good?") and an **online overseer** ("did this run behave
   **model spend by tier** (the cost flame), and a **loops/rework** summary, cross-linking the
   gate + audit pages. The audit answers *who decided what and why*; the flight recorder answers
   *what the run DID and where the time/tokens went*. Pinned by `tests/test_run_stats.py`.
+- **Autonomy metric** (`run_stats.compute_autonomy`): the number a software company actually
+  manages — **human interventions per run**. Deterministic from the trace + final state:
+  `clarifications` (CEO answers) + `rejections` (gate rejects) + `manual_edits` (CTO hand-fixes,
+  logged as `cto_handfix` feedback) = interventions; `autonomy_rate = approvals / (approvals +
+  interventions)` (1.0 = the human only rubber-stamped the mandatory gates). Surfaced as an INFO
+  overseer finding and the headline KPI on the flight recorder. Pinned by `tests/test_autonomy.py`.
 - **Overseer** (`evals/overseer.py`): deterministic, runs at the end of *every* run
   (`main.py`). **Invariants** — engineer never authored tests, a full-lane feature has a
   PRD + a confirmed stack, nothing ships on red below the retry cap. **Loop detection** —
@@ -562,6 +571,45 @@ critics/validators as graders, run K× for variance), end-to-end golden tasks wi
 **held-out** acceptance oracle, an LLM overseer reviewing the trajectory, per-node
 real-time halting, confidence-gated selective human review, and a CI regression gate on
 eval scores. See `evals/README.md`.
+
+---
+
+### 17. The AI-native layer (code quality + 2026 model capabilities)
+
+A layer that hardens *output quality* and *agent coordination* without destabilizing the
+proven engineer⟷QA loop. The guiding rule throughout: **augment the proven gates with
+deterministic checks and safe defaults; never bolt on a new blocking gate that can thrash
+the loop.** Roadmap + rationale in `AI_NATIVE_ROADMAP.md`.
+
+- **Dependency lock** (`registry.check_dependencies`): every third-party import in the
+  engineer's WRITTEN files must be a declared dependency (`requirements.txt`/`pyproject.toml`
+  for Python via `ast`; `package.json` for JS/TS). Folded into `code_quality` (advisory),
+  scoped to written files. Kills the "builds locally, breaks in a clean install" class.
+- **Code-quality layer** (`registry.format_code` / `code_quality_report` /
+  `check_frontend_quality_tooling`): auto-format (ruff) runs before the blocking E,F lint
+  gate; advisory mccabe-complexity + mypy + frontend-tooling findings surface at the PR gate.
+- **Opt-in soft gate** (`QUALITY_GATE` env): `report` measures line coverage
+  (`measure_coverage`, a separate best-effort Docker pass that never touches the correctness
+  run); `block` additionally fails the engineer round on over-budget cyclomatic complexity
+  (`check_quality_gate`). Default OFF — report-first → gate-later. Coverage is NOT gated on the
+  engineer (it can't edit `tests/`); mypy stays advisory (false-positive risk).
+- **Structured control-plane signals** (`tools/llm.call_structured`): the routing-critical
+  decisions (triage change-type, critic verdict, design-QA verdict) are VALIDATED objects, not
+  regexes over prose — a strict "emit ONLY this JSON" contract, robust extraction, schema
+  coercion, one corrective retry, and a SAFE default on failure (a traced fallback, never a
+  silent misroute). Marker-in-artifact signals (`NEEDS_INPUT`, the QA GO/NO-GO) keep robust
+  markers. Backend-agnostic.
+- **Web search** (`call_llm(..., web_search=True)`, OPT-IN via `LLM_WEB_SEARCH`): lets the
+  THINKING agents (architect, surveyor) verify current library versions / APIs / CVEs instead
+  of training-cutoff memory. Falls back to a plain call on any failure, so enabling it can
+  never break a run.
+- **Kit testid uniqueness** (`registry.check_kit_testid_uniqueness`, in
+  `design._enforce_testid_uniqueness`): the dual-surface design mandate (desktop table + mobile
+  card) can render the same `data-testid` twice in the DOM → a Playwright strict-mode failure
+  the engineer CAN'T fix (the kit is design-owned). This catches it at design time (re-emit
+  once), and `skills/design.md` mandates per-layout-unique testids.
+- **Adaptive thinking** (`tools/llm.EFFORT`, OPT-IN via `LLM_THINKING=adaptive`): maps each
+  tier to a reasoning-effort level on the api backend; default OFF.
 
 ---
 
@@ -662,17 +710,16 @@ That is the complete change. Five files touched, four of them new.
 | Limitation | Where | Planned fix |
 |---|---|---|
 | Docker pip install is slow on first run | `tools/registry.py` | Pre-built base image |
-| DevOps generates IaC but doesn't execute it | `agents/devops.py` | v2: gcloud CLI execution |
-| No Ops/monitoring agent | `graph/graph.py` | Next agent to add |
-| Sequential Design → Architect (not parallel) | `graph/graph.py` | LangGraph Send() API |
-| No web search for agents | `tools/registry.py` | Add Brave/Tavily search tool |
-| Greenfield only — no existing-codebase awareness | whole pipeline | Phase 2.1 |
-| Static skills — no cross-run learning | `skills/` | Phase 2.2 |
-| Critic wired only for the tech spec | `agents/critic.py` | add design/PRD stages |
+| DevOps generates IaC but doesn't execute it | `agents/devops.py` | v2: cloud-CLI execution |
+| No Ops/monitoring + deploy→telemetry→backlog loop | `graph/graph.py` | next agent + MCP connectors |
+| Sequential Design → Architect (not parallel) | `graph/graph.py` | LangGraph Send() / subagents |
 | Engineer still one call (+continuation), not per-module | `agents/engineer.py` | deeper decomposition |
+| QA authors only the current phase's e2e — prior specs not retained | `agents/qa.py` | additive-e2e contract |
+| Generated kit forms don't always render server-set field errors | design kit (generated) | design/engineer skill fix |
+| `live_run.py` segment can exit early mid-pipeline (needs `resume`) | `live_run.py` | investigate stream exit |
 
-> **Phase 0 done:** prompt caching, folded Q&A probe, three model tiers, raised caps.
-> **Phase 1 done** (see `IMPROVEMENT_PLAN.md`): independent TDD test author, Critic
-> review gate (retry→escalate), blocking PRD + PR approval gates, ship node, engineer
-> consumes authoritative tests + truncation continuation. Waterfall and
-> "marking own homework" limitations resolved.
+> **Done since (see `IMPROVEMENT_PLAN.md` + `AI_NATIVE_ROADMAP.md`):** independent TDD,
+> critic gates (design + architect), blocking PRD/PR gates, extend-mode codebase awareness,
+> cross-run learning, run-and-verify integration + vision design-QA, design-owned component
+> kit, toolchain-detecting test runner, web search, structured control-plane signals,
+> dependency lock, opt-in quality soft-gate, autonomy metric, kit-testid hardening.

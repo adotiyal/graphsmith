@@ -1,5 +1,7 @@
 # Agent Audit — Through the Human-Worker Lens
 
+> **Historical record (point-in-time).** For the current design see `ARCHITECTURE.md` and `CLAUDE.md`.
+
 Each agent is judged as you'd judge a human in that role: **does it get the inputs it
 needs, produce the right outputs, have the interactions it needs — and is it ever
 *blocked*?** The governing principle (your call): an agent must never be stuck on a
