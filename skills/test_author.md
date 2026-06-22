@@ -25,6 +25,12 @@ Write tests for the layer(s) the feature touches, using the matching tool:
   the frontend's test dir, per the spec's layout.
 - The toolchain runner runs pytest in `python:3.12-slim` and vitest in `node:22-alpine`
   and aggregates — so a non-empty, runnable oracle per touched layer is mandatory.
+- **The fast unit oracle may run on a different datastore than production — don't assert
+  storage-engine internals in it.** Test intent at the API/behavior level (status code +
+  error shape + persisted-vs-returned data), not raw engine specifics, which can pass on the
+  test store and break on the real one. The integration stage (production-like backend) is
+  what proves migration/boot correctness. *(Default stack: unit tests run on sqlite, which
+  hides Postgres-only issues like enum-type collisions, JSON/array columns, server defaults.)*
 
 ## Test data — always use factory functions
 Write a `tests/factories.py` (or `factories.ts` for frontend) with one builder per model.

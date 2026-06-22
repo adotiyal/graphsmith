@@ -118,6 +118,22 @@ the last `</html>`, ignoring fences/preamble), best-effort on truncation. Pinned
 engineer skill's newest mandates never reached it. Cap now 16000 and
 `test_all_skills_load_untruncated` fails the suite if any `skills/*.md` crosses it.
 
+**Generalization note (recurring learnings → STACK-AGNOSTIC skill principles, 2026-06-22):**
+when a recurring bug class is committed into a skill (so it survives the gitignored/evictable
+`learnings/` store and ships with the repo), state it as a TRANSFERABLE PRINCIPLE — usable for
+any product on any stack — with the default-stack form as a parenthetical *(Default stack: …)*
+example. Do NOT bolt on a per-stack deterministic guard for it: the deterministic layer is
+already FastAPI/SQLAlchemy/Postgres-coupled, and growing that coupling makes the platform less
+portable; prefer the EXISTING generic mechanisms (e.g. the integration stage brings the app up
+on the real backend, which catches the whole "tests pass / app doesn't boot" class regardless
+of stack). Worked example: the Postgres enum trap (generic `sa.Enum` silently ignores
+`create_type=False` → `DuplicateObject` at `alembic upgrade head`, invisible to sqlite unit
+tests) is encoded as the GENERIC engineer/test_author principle "tests passing ≠ the app boots;
+migrations must run on the production engine" — its Postgres specifics live only as the example.
+**Rule: a learning injected into an agent must be product- AND stack-agnostic; keep stack
+specifics as `(Default stack: …)` examples, and reuse the existing generic gates over new
+per-stack ones.**
+
 **Gotcha (mostly retired by I1):** the `===FILE/EDIT===` TEXT path (now only behind
 `AGENT_CODEGEN=text`) parses via `engineer._file_blocks` (block ends at next marker; LAST
 emission of a path wins) — the naive regex once corrupted 5 files, and text re-emission
