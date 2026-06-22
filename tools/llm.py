@@ -410,12 +410,12 @@ _RETRY_GUARD = (
 
 def _cli_workdir() -> str:
     """A neutral empty cwd for CLI calls: running from the pipeline repo would load
-    AgentPlatform's own CLAUDE.md (+ repo context) into every call — pure token
+    Graphsmith's own CLAUDE.md (+ repo context) into every call — pure token
     overhead and behavioral contamination for what should be a clean completion."""
     global _CLI_WORKDIR
     if _CLI_WORKDIR is None or not os.path.isdir(_CLI_WORKDIR):
         import tempfile
-        _CLI_WORKDIR = tempfile.mkdtemp(prefix="agentplatform-llm-")
+        _CLI_WORKDIR = tempfile.mkdtemp(prefix="graphsmith-llm-")
     return _CLI_WORKDIR
 
 

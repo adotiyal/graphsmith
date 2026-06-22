@@ -1,4 +1,4 @@
-# AgentPlatform — Improvement Plan
+# Graphsmith — Improvement Plan
 
 > **Historical record (point-in-time).** Most items here are now shipped — for the
 > *current* design and status see `ARCHITECTURE.md`, `CLAUDE.md`, and `AI_NATIVE_ROADMAP.md`.
@@ -216,7 +216,7 @@ pinned slim/alpine images (no floating `:latest`).
 
 ### 4.2 Integration stage — bring the stack UP + smoke  ✅ DONE
 - **What:** new deterministic node (`agents/integration.py`, no LLM) after QA, before
-  `pr_gate`: `registry.run_compose_integration()` runs `docker compose -p agentplatform-it
+  `pr_gate`: `registry.run_compose_integration()` runs `docker compose -p graphsmith-it
   up -d --build` on the app's OWN compose file, polls `compose ps` until every service is
   running/healthy, smoke-checks the conventional endpoints (api `GET :8000/health`,
   frontend `GET :3000/` — service names standardized via skills/engineer.md), captures

@@ -1,5 +1,5 @@
 """
-Shared test fixtures for the AgentPlatform test suites.
+Shared test fixtures for the Graphsmith test suites.
 
 These tests run WITHOUT an Anthropic API key or Docker — every LLM call and the
 Docker test runner are mocked. They verify the architecture and each agent's

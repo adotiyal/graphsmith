@@ -52,7 +52,7 @@ _CODEGEN_GUARD = (
 
 
 def _stage(root: str) -> str:
-    staging = tempfile.mkdtemp(prefix="agentplatform-codegen-")
+    staging = tempfile.mkdtemp(prefix="graphsmith-codegen-")
     # copytree into the existing temp dir's subpath keeps cleanup trivial
     dst = os.path.join(staging, "work")
     shutil.copytree(root, dst, ignore=shutil.ignore_patterns(*IGNORE_NAMES))

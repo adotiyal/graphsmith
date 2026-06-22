@@ -24,7 +24,7 @@ for the metered API. The GitHub CLI is optional (only to open a real PR).
 ## 1. Set up
 
 ```bash
-cd agentplatform
+cd graphsmith
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt        # runtime deps + pytest
 # LLM defaults to the claude CLI (no key needed). For the metered API instead:

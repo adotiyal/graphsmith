@@ -912,7 +912,7 @@ def measure_coverage(project_dir: str, timeout: int = 240):
 PLAYWRIGHT_IMAGE = "mcr.microsoft.com/playwright:v1.49.1-noble"  # pinned; legacy TS specs
 PLAYWRIGHT_PY_IMAGE = "mcr.microsoft.com/playwright/python:v1.49.1-noble"  # pinned; e2e language = Python
 PYTEST_PLAYWRIGHT_VERSION = "0.6.2"  # pinned plugin, matches playwright 1.49.x
-COMPOSE_PROJECT = "agentplatform-it"   # fixed -p name → predictable network for e2e
+COMPOSE_PROJECT = "graphsmith-it"   # fixed -p name → predictable network for e2e
 _COMPOSE_FILES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 
 # Integration-only compose override. The e2e suite drives every rate-limited WRITE
@@ -1037,7 +1037,7 @@ def _smoke(project_dir: str) -> tuple[bool, str]:
 
 def _compose_network(project_dir: str) -> str:
     """Resolve the compose project's actual network name — apps may define a custom
-    network (e.g. app_network → agentplatform-it_app_network), so never assume _default."""
+    network (e.g. app_network → graphsmith-it_app_network), so never assume _default."""
     try:
         r = subprocess.run(["docker", "network", "ls", "--format", "{{.Name}}"],
                            capture_output=True, text=True, timeout=30)

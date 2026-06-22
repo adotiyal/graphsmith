@@ -2,7 +2,7 @@
 
 ## Purpose
 
-AgentPlatform is a multi-agent pipeline built on LangGraph that automates the
+Graphsmith is a multi-agent pipeline built on LangGraph that automates the
 full lifecycle of building a SaaS feature — from your plain-language requirement
 to deployed infrastructure configuration. You act as **CEO and CTO** — the single human
 authority over both business scope and technical direction (the tech stack is yours to
@@ -18,7 +18,7 @@ The system is designed around three constraints:
 ## Directory Structure
 
 ```
-agentplatform/
+graphsmith/
 │
 ├── main.py                  Entry point. Your CEO interface.
 ├── requirements.txt
@@ -297,7 +297,7 @@ only *after* `pr_gate` approval, so nothing is pushed without a human gate.
 **9.3b Run-and-verify (Phase 4.2/4.3).** After QA passes, the **integration** node
 (`agents/integration.py` — deterministic, no LLM) proves the app actually RUNS:
 `registry.run_compose_integration()` brings the app's own `docker-compose.yml` up
-(`-p agentplatform-it`, pinned slim images), polls until every service is
+(`-p graphsmith-it`, pinned slim images), polls until every service is
 running/healthy, smoke-checks the conventions (api `GET :8000/health`, frontend
 `GET :3000/`), then runs **QA-authored Playwright specs** (`e2e/*.spec.ts`) in the
 pinned `mcr.microsoft.com/playwright` image on the compose network

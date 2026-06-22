@@ -1,4 +1,4 @@
-# AgentPlatform
+# Graphsmith
 
 An AI-native software company where you act as **CEO and CTO** — you own the business
 *and* technical calls — and agents do the rest, from requirements all the way to

@@ -1,4 +1,4 @@
-# AI-Native Roadmap — making AgentPlatform the best AI-native software company
+# AI-Native Roadmap — making Graphsmith the best AI-native software company
 
 **Date:** 2026-06-19 · **Author:** operator review for the CEO/CTO
 **Scope:** the latest Claude capabilities (mid-2026) mapped onto *this* repo, plus a concrete

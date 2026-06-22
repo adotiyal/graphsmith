@@ -1,4 +1,4 @@
-# AgentPlatform — Claude Code Guide
+# Graphsmith — Claude Code Guide
 
 ## What this project is
 
@@ -240,7 +240,7 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 
 - `integration` (4.2/4.3): deterministic node (no LLM) after QA — `registry.run_compose_integration`
   PRE-CLEANS (down -v + foreign-port fail-fast marked "environment, not code"), brings the
-  app's own docker-compose stack up (`-p agentplatform-it`), waits healthy, smokes
+  app's own docker-compose stack up (`-p graphsmith-it`), waits healthy, smokes
   api/frontend, runs QA's e2e (python `test_*.py` + legacy `*.spec.ts`) on the compose
   network, SEEDS representative data via the app's openapi.json (incl. an OVERDUE entity)
   before the design-QA screenshot, always tears down. Fail → engineer via `error_log` (cap `MAX_INTEGRATION_ATTEMPTS=2`, then gate
