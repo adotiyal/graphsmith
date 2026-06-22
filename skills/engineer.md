@@ -83,6 +83,24 @@ src/
 - Use httpx.AsyncClient in tests, never requests
 - Passwords hashed with bcrypt — never stored plain
 - Environment variables via pydantic-settings, never os.environ directly
+- **Authorize every state-changing operation at its entry boundary.** Each write
+  (create/update/delete) checks identity AND permission (role/ownership) at the handler
+  itself — never trust a lower layer, middleware, or the client to have gated it.
+  Deliberately public writes (sign-up, login) are the only exception and must be intentional.
+  *(Default stack: a FastAPI `get_current_user` dependency + an explicit role/ownership check
+  on every POST/PUT/PATCH/DELETE.)*
+- **Keep validation-layer optionality and storage-layer nullability in agreement.** A field
+  that may be absent/NULL in the API must also be nullable in storage, and a required field
+  must be non-null in both — a mismatch type-checks fine and fails at write time. *(Default
+  stack: `Optional[...]` in a Pydantic model ⇏ `nullable=True` in SQLAlchemy — set both.)*
+- **Honor the framework's contract for empty-body responses.** A no-content status
+  (`204`/`304`) must declare no response body. *(Default stack: set `response_model=None` — a
+  response model on a `204` is an HTTP-spec violation that fails only at runtime.)*
+- **Every type named in an annotation must resolve where the framework evaluates it.**
+  Frameworks that introspect annotations at definition time fail loudly on an unresolved name.
+  *(Default stack: Pydantic evaluates model annotations at class-definition — import every
+  type at module level and add `from __future__ import annotations` for forward refs / PEP-604
+  `X | None`; a missing name is an import-time crash, not a test failure.)*
 
 ### Auth pattern (when feature requires auth)
 Use JWT. FastAPI dependency: `get_current_user` injected into protected routes.
@@ -93,6 +111,17 @@ Do not implement OAuth unless spec explicitly requires it.
 - Alembic for migrations — generate migration file, don't auto-migrate
 - Use UUID primary keys, not integer sequences
 - created_at / updated_at on every table, set by DB default
+- **Tests passing ≠ the app boots.** Your fast unit oracle often runs on a simpler
+  datastore/config than production, so migration- and schema-level behavior can pass in
+  tests yet crash when the app starts against the real backend. Migrations must run cleanly
+  and idempotently on the *production* engine. The integration stage brings the app up on
+  that real backend and will catch a green-tests/red-boot build — fix it there, never ship it.
+  *(Default stack: unit tests run on sqlite, which renders enums as VARCHAR and hides
+  Postgres-only migration bugs. In particular, declare Postgres enum columns with the dialect
+  type `postgresql.ENUM(..., name="<type>", create_type=False)`, NOT the generic
+  `sqlalchemy.Enum` — the generic Enum silently ignores `create_type=False` and re-issues
+  `CREATE TYPE`, colliding with your own `DO $$ … CREATE TYPE $$` block → `DuplicateObject`
+  at `alembic upgrade head`.)*
 
 ## Frontend Patterns (Next.js app router)
 

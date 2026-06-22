@@ -41,6 +41,9 @@ Each endpoint must map to a user action in the Design spec.
 ### 4. Security defaults
 Even in v1, these are non-negotiable:
 - Auth-required endpoints explicitly marked in spec
+- Each write endpoint (POST/PUT/PATCH/DELETE) names its authorization rule explicitly —
+  who may call it and the HTTP code on denial (401 vs 403). The engineer enforces it at the
+  route, so a narrative hint isn't enough; state it or the engineer will guess.
 - No sensitive data in URL params (use POST body or headers)
 - CORS configured for specific origins, not wildcard
 - Rate limiting noted where applicable (auth endpoints always)
@@ -50,6 +53,12 @@ Even in v1, these are non-negotiable:
 - Foreign keys are explicit — name them clearly (user_id, not uid)
 - Indexes on every foreign key and any column used in WHERE clauses
 - No polymorphic associations — use explicit join tables
+- **Pin schema details that behave differently on the production engine than on the test
+  datastore** — enum types, JSON/array columns, server defaults, identifier casing — so the
+  engineer doesn't discover them at boot. *(Default stack: mandate Postgres enums as the
+  dialect `postgresql.ENUM(..., name="<type>", create_type=False)` created once via a
+  migration `CREATE TYPE`, never the generic `sa.Enum` — it silently double-creates the type
+  and crashes at `alembic upgrade head`, which sqlite unit tests miss.)*
 
 ## API Design Rules
 - Use nouns not verbs: /items not /getItems
