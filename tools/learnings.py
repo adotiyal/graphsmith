@@ -57,11 +57,105 @@ def record_learning(agent: str, lesson: str) -> bool:
 
 
 def augment_system(system: str, agent: str) -> str:
-    """Append the agent's learnings to its system prompt, if any."""
-    learnings = load_learnings(agent)
-    if not learnings:
+    """Append the agent's learnings to its system prompt: the COMMITTED shared tier
+    (generic, ships with the harness — see below) FIRST, then this deployment's LOCAL
+    accumulated lessons. Either/both/neither may be empty."""
+    shared = load_shared_learnings(agent)
+    local = load_learnings(agent)
+    blocks = []
+    if shared:
+        blocks.append("## Shared learnings (curated — apply to ANY product/stack)\n" + shared)
+    if local:
+        blocks.append("## Learnings from past runs (do not repeat these mistakes)\n" + local)
+    if not blocks:
         return system
-    return f"{system}\n\n## Learnings from past runs (do not repeat these mistakes)\n{learnings}"
+    return system + "\n\n" + "\n\n".join(blocks)
+
+
+# ── Committed "shared" tier (propagating GENERIC learnings to the harness) ───
+# The LEARNINGS_ROOT/<agent>.md store above is machine-accumulated, gitignored, and LOCAL
+# to one installation — its lessons never leave the clone that learned them, and may be
+# stack/product-specific. The shared tier (learnings/shared/<agent>.md) is the opposite:
+# COMMITTED (un-ignored in .gitignore) and therefore shipped with the harness to EVERY
+# clone and project. A lesson reaches it only by human-gated PROMOTION (promote_learning /
+# the `promote` CLI), and MUST be product- AND stack-agnostic (keep stack specifics as a
+# "(Default stack: …)" example). Kept separate from hand-authored skills/ so promoted
+# machine lessons never corrupt the curated skill, and from the local store so raw
+# candidates aren't shipped blindly. augment_system loads both tiers.
+MAX_SHARED_LEARNINGS_CHARS = 4000
+
+
+def _shared_root() -> Path:
+    """The committed shared-learnings dir, derived from LEARNINGS_ROOT at call time so the
+    test fixture's LEARNINGS_ROOT patch isolates the shared tier too."""
+    return LEARNINGS_ROOT / "shared"
+
+
+def load_shared_learnings(agent: str) -> str:
+    """Committed, cross-project generic lessons for an agent (most recent if over cap), or ''."""
+    p = _shared_root() / f"{agent}.md"
+    if not p.exists():
+        return ""
+    text = p.read_text(encoding="utf-8").strip()
+    return text[-MAX_SHARED_LEARNINGS_CHARS:] if len(text) > MAX_SHARED_LEARNINGS_CHARS else text
+
+
+def promote_learning(agent: str, lesson: str) -> bool:
+    """Graduate a VETTED, generic lesson into the COMMITTED shared tier (ships with the
+    harness to every clone). Same normalize/dedupe/cap contract as record_learning, but
+    writes learnings/shared/<agent>.md and only for a real producing agent. The CALLER owns
+    genericity — a promoted lesson must be product- AND stack-agnostic. Returns True if
+    newly recorded; False on empty/too-short/unknown-agent/duplicate."""
+    lesson = " ".join((lesson or "").strip().split())
+    if len(lesson) < MIN_LESSON_CHARS or agent not in RETRO_AGENTS:
+        return False
+    p = _shared_root() / f"{agent}.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    existing = p.read_text(encoding="utf-8") if p.exists() else ""
+    if lesson.lower() in existing.lower():
+        return False
+    updated = existing + f"- {lesson}\n"
+    if len(updated) > MAX_SHARED_LEARNINGS_CHARS:
+        lines = updated.splitlines(keepends=True)
+        while len("".join(lines)) > MAX_SHARED_LEARNINGS_CHARS and len(lines) > 1:
+            lines.pop(0)
+        updated = "".join(lines)
+    p.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _bullets(text: str) -> list:
+    """The '- ' bullet lines of a learnings file as plain texts (order preserved)."""
+    return [ln[2:].strip() for ln in (text or "").splitlines() if ln.startswith("- ")]
+
+
+def _read_local_raw(agent: str) -> str:
+    """The full (un-capped) local learnings file for an agent, or ''."""
+    p = LEARNINGS_ROOT / f"{agent}.md"
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def local_learning(agent: str, index: int) -> "str | None":
+    """The Nth local (candidate) lesson text, or None if out of range. Index matches the
+    `list` CLI output, so a human can promote by the number they see."""
+    bl = _bullets(_read_local_raw(agent))
+    return bl[index] if 0 <= index < len(bl) else None
+
+
+def remove_local_learning(agent: str, index: int) -> "str | None":
+    """Pop the Nth local (candidate) lesson — used to GRADUATE it once promoted, so it isn't
+    injected from both tiers. Returns the removed text, or None if out of range."""
+    p = LEARNINGS_ROOT / f"{agent}.md"
+    if not p.exists():
+        return None
+    lines = p.read_text(encoding="utf-8").splitlines()
+    bullets = [i for i, ln in enumerate(lines) if ln.startswith("- ")]
+    if not (0 <= index < len(bullets)):
+        return None
+    removed = lines[bullets[index]][2:].strip()
+    del lines[bullets[index]]
+    p.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+    return removed
 
 
 # ── Universal self-improvement (CEO mandate 2026-06-13) ─────────────────────
@@ -138,3 +232,78 @@ def emit_feedback(agent: str, fb_kind: str, text: str):
         trace.emit("feedback", agent=agent, fb_kind=fb_kind, text=(text or "")[:MAX_EVENT_CHARS])
     except Exception:
         pass
+
+
+# ── Promote CLI — human-gated graduation local → committed shared tier ───────
+# `python -m tools.learnings list` reviews candidates; `... promote` lifts a vetted,
+# GENERIC lesson into learnings/shared/<agent>.md (which ships with the harness).
+
+def _cli_list(agent_filter: "str | None") -> None:
+    agents = [agent_filter] if agent_filter else RETRO_AGENTS
+    shown = False
+    for agent in agents:
+        local = _bullets(_read_local_raw(agent))
+        shared = _bullets(load_shared_learnings(agent))
+        if not local and not shared:
+            continue
+        shown = True
+        print(f"\n=== {agent} ===")
+        if shared:
+            print("  [shared / committed — ships with the harness]")
+            for s in shared:
+                print(f"      • {s}")
+        if local:
+            print(f"  [local / candidates — promote with: promote --agent {agent} --index N --as '<generic rewrite>']")
+            for i, s in enumerate(local):
+                print(f"    [{i}] {s}")
+    if not shown:
+        print("(no learnings recorded yet)")
+
+
+def main(argv: "list | None" = None) -> int:
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="python -m tools.learnings",
+        description="Inspect cross-run learnings and PROMOTE generic ones into the committed "
+                    "shared tier (learnings/shared/<agent>.md) that ships with the harness.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    pl = sub.add_parser("list", help="show local (candidate) + shared (committed) learnings")
+    pl.add_argument("--agent", default=None, help="limit to one agent")
+    pp = sub.add_parser("promote", help="graduate a generic lesson into the committed shared tier")
+    pp.add_argument("--agent", required=True)
+    src = pp.add_mutually_exclusive_group(required=True)
+    src.add_argument("--index", type=int, help="promote the Nth local candidate (see `list`)")
+    src.add_argument("--text", help="promote this exact (already-generic) lesson text")
+    pp.add_argument("--as", dest="as_text", default=None,
+                    help="with --index: the generic rewrite to ship (recommended — raw "
+                         "candidates are often stack-specific)")
+    args = p.parse_args(argv)
+
+    if args.cmd == "list":
+        _cli_list(args.agent)
+        return 0
+
+    if args.agent not in RETRO_AGENTS:
+        print(f"unknown agent '{args.agent}'. Agents: {', '.join(RETRO_AGENTS)}")
+        return 2
+    if args.text is not None:
+        lesson = args.text
+    else:
+        src_text = local_learning(args.agent, args.index)
+        if src_text is None:
+            print(f"no local candidate at index {args.index} for {args.agent} (see `list`).")
+            return 2
+        lesson = args.as_text or src_text
+    if not promote_learning(args.agent, lesson):
+        print("not promoted (empty, too short, or already present in the shared tier).")
+        return 1
+    if args.text is None:                       # graduate: drop the candidate from local
+        remove_local_learning(args.agent, args.index)
+    print(f"promoted to learnings/shared/{args.agent}.md:\n  - {lesson}")
+    print("REMINDER: the shared tier ships to every clone — ensure it is product- AND "
+          "stack-agnostic (keep stack specifics as a '(Default stack: …)' example).")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

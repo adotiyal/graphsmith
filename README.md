@@ -165,6 +165,12 @@ The pipeline is not a one-pass waterfall — it verifies its own work:
   verdicts, your own directives) is recorded, and an end-of-run retrospective distils
   generalizable lessons PER AGENT (`learnings/`). Every agent loads its lessons on the
   next run — the whole company stops repeating its mistakes, not just the engineer.
+  These local lessons stay on the machine that learned them (gitignored). The **generic,
+  stack-agnostic** ones can be **promoted into a committed `learnings/shared/` tier** that
+  ships with the harness, so every clone and every project starts with them —
+  `python -m tools.learnings list` then `promote --agent <a> --index N --as "<generic
+  rewrite>"`. Promotion is human-gated (no auto-commit), keeping stack/product specifics out
+  of the shared tier.
 - **Standing product invariants:** the code-writing agents (architect, test author,
   engineer, QA) get the product's hard, code-verifiable rules — unique/check constraints,
   computed-not-stored columns, enums, route+auth surface — **statically extracted from the
