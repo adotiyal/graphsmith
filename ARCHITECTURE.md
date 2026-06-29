@@ -58,7 +58,7 @@ graphsmith/
 │   ├── registry.py          Deterministic tools: linter, test runner, validators
 │   ├── qa_utils.py          Bidirectional Q&A — run_with_qa(), consult(), format_qa_context()
 │   ├── repo.py              Read-only codebase access for extend mode (2.1)
-│   ├── learnings.py         Cross-run learning store — load/record/augment_system (2.2)
+│   ├── learnings.py         Cross-run learning — local + committed-shared tiers, promote CLI (2.2)
 │   ├── product.py           Persistent product profile + confirmed stack
 │   ├── project_ctx.py       The single persistent project (workspace/project) + feature ledger
 │   └── trace.py             Per-run trace (nodes + LLM calls/tokens/latency) → traces/<id>.jsonl
@@ -398,7 +398,19 @@ The company gets smarter over time. `tools/learnings.py` is a persistent store
   Lessons are **deduped** and the store is **char-capped** (oldest trimmed first).
 - The engineer, architect, and test author load their learnings into the system prompt
   (`augment_system`) on every run, so past failures stop recurring across *different*
-  features. `learnings/` is gitignored by default (local memory); un-ignore to share.
+  features.
+- **Two tiers — local vs shared (committed):** the retro writes the gitignored
+  `learnings/<agent>.md` store, which is machine-accumulated, may be stack/product-specific,
+  and is **local to one installation**. A second store `learnings/shared/<agent>.md` is
+  **committed** (un-ignored in `.gitignore`), so its lessons ship with the harness to *every*
+  clone and project. `augment_system` injects both (shared first, then local). A lesson
+  reaches the shared tier only by human-gated **promotion** — `learnings.promote_learning`
+  and the CLI `python -m tools.learnings list` / `promote --agent <a> (--index N --as
+  "<generic rewrite>" | --text "...")` — and **must be product- AND stack-agnostic** (stack
+  specifics live only as a `(Default stack: …)` example). Promote-by-index *graduates* the
+  candidate: it is removed from the local store so it isn't injected twice. The shared tier is
+  kept separate from hand-authored `skills/` so a promoted machine lesson can never corrupt a
+  curated skill, and from the local store so raw candidates are never shipped blindly.
 - **Feedback events + end-of-run retro:** every failure choke point emits a `feedback`
   event into the run trace (`learnings.emit_feedback`); at DONE, `learnings.run_retro`
   distils ≤2 **product-agnostic** lessons per agent and records them for *all* producing

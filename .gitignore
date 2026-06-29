@@ -15,8 +15,11 @@ venv/
 # LangGraph checkpoints
 checkpoints.db
 
-# Cross-run learnings (local institutional memory; un-ignore to share across the team)
-learnings/
+# Cross-run learnings — machine-accumulated, LOCAL per installation (gitignored).
+# EXCEPTION: learnings/shared/ IS committed — the curated, generic, human-promoted
+# lessons that ship with the harness to every clone (see tools/learnings.py `promote`).
+/learnings/*
+!/learnings/shared/
 
 # Product profile (company product context; un-ignore to share across the team)
 product/

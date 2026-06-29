@@ -336,6 +336,19 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
   test_author, engineer, qa, devops) load their lessons into the system prompt via `augment_system`.
   QA's unit-test-failure distillation also remains. Deduped + capped per agent; `learnings/`
   gitignored. Pinned by `tests/test_self_improvement.py` + `tests/test_retro_feedback.py`.
+- **Two learning tiers — LOCAL (per-installation) vs SHARED (committed, ships with the
+  harness) (2026-06-27):** the retro writes to the gitignored `learnings/<agent>.md` store,
+  which is machine-accumulated, may be stack/product-specific, and never leaves the clone
+  that learned it. A second tier `learnings/shared/<agent>.md` is **committed** (un-ignored in
+  `.gitignore`) so its lessons propagate to EVERY clone and project. A lesson reaches it only
+  by human-gated PROMOTION and MUST be product- AND stack-agnostic (keep stack specifics as a
+  `(Default stack: …)` example). `augment_system` loads BOTH (shared first, then local);
+  `promote_learning` + the CLI `python -m tools.learnings list` / `promote --agent <a>
+  (--index N --as "<generic rewrite>" | --text "...")` graduate a candidate (promote-by-index
+  REMOVES it from local so it isn't injected twice). Kept separate from hand-authored
+  `skills/` so promoted machine lessons never corrupt a curated skill. Pinned by
+  `tests/test_shared_learnings.py`. **Rule: only product- AND stack-agnostic lessons go in the
+  committed shared tier; raw/stack-specific candidates stay in the local store.**
 - **Standing product invariants (knowledge-base wiring, 2026-06-17):** the generation agents
   (architect, test_author, engineer, qa) carried ZERO standing product context — they reasoned
   about the product from per-run artifacts alone. Now `registry.extract_product_invariants(root)`
@@ -411,7 +424,7 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `tools/qa_utils.py` | Bidirectional Q&A — `run_with_qa()`, `consult()`, `format_qa_context()`, **`product_invariants_block`** (injects code-derived invariants into architect/test_author/engineer/qa) |
 | `tools/repo.py` | Read-only existing-codebase access for extend mode (list/grep/read/map + guarded write) |
 | `tools/codegen.py` | I1/I17 — ALL code-writing agents (engineer, test_author, qa-e2e, design-kit) change files via REAL tools on a staging copy + guarded sync-back. `generate_in_domain` = inverted guard (agent may only touch its own domain; Read-before-write prevents blind overwrites that dropped exports/self-deleted modules) |
-| `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2) |
+| `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2); **two tiers**: gitignored LOCAL `learnings/<agent>.md` + COMMITTED `learnings/shared/<agent>.md` (`load_shared_learnings`/`promote_learning` + `python -m tools.learnings list`/`promote` CLI = human-gated graduation of GENERIC lessons into the harness) |
 | `tools/contract.py` | Feature Contract spine — parse PRD AC ids (`parse_acs`), extract `# covers:` AC refs, deterministic `coverage` (every AC tested, every UI AC has an e2e) |
 | `tools/product.py` (+`registry`) | Interface Contract — persisted cumulative kit testids + microcopy (`load/save_interface_contract`); `registry.extract_kit_interface` + `check_interface_additive` enforce ADDITIVE-ONLY across phases (no dropped guarantee). `registry.resolve_kit_testids` resolves STATE-SUFFIX kit components (`${base}-add-friend`) so the REAL rendered ids are surfaced and a base-only e2e assertion is caught; `kit_state_suffixes` feeds the variants to QA authoring |
 | `tools/product.py` | Persistent product profile (category/users/brand/goals) + persisted stack; `_cap` makes over-cap reads WARN (no silent head-slice) |
