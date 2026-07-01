@@ -9,7 +9,7 @@ authority over both business scope and technical direction (the tech stack is yo
 finalize). Every other role (PM, Designer, Architect, Engineer, QA, DevOps) is an AI agent.
 
 The system is designed around three constraints:
-- **Minimal tokens** — state holds paths, not content; Haiku for all non-code agents
+- **Minimal tokens** — state holds paths, not content; two models (Opus=think, Sonnet=code)
 - **KISS** — one LLM call per agent work phase, flat state schema, no conversation history
 - **Extensible** — adding an agent touches 4 new files and a few lines in one existing file
 
@@ -178,17 +178,21 @@ No chat history is passed between agents. The previous agent's *artifact file*
 is the handoff mechanism, not a message thread. Q&A rounds use separate LLM calls
 (question generation + optional consult calls) before the main work call.
 
-### 5. Model tier split (three tiers as of Phase 0)
+### 5. Model allocation (two models, split by workload)
 
-`tools/llm.py` routes calls to three models by leverage:
-- `fast` → `claude-haiku-4-5` — CEO, PM, QA, DevOps, peer consults
-- `strong` → `claude-sonnet-4-6` — Engineer (code gen + fix loop), Design (consumer-app
-  reasoning), Test Author (authors the correctness oracle); output cap 8192
-- `reason` → `claude-opus-4-8` — Architect (and future Critic) — the highest-leverage
-  reasoning in the system; its spec gates everything downstream
+`tools/llm.py` routes calls to **two models, split by workload** (2026-06-27) — Opus 4.8 for
+thinking/decision/analysis, Sonnet 5 for hands-on coding. Three tier keys map onto the two
+models (keys kept so call sites/tests don't churn); `MAX_TOKENS` is 8192 on every tier:
+- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis,
+  peer consults, retro (was Haiku, now retired)
+- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup,
+  QA e2e specs, DevOps config
+- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle: Architect, Critic, Test Author
+  (the correctness oracle), Design spec reasoning, and the design-QA vision verdict
 
-Previously Architect ran on Haiku — the most inverted allocation in the system,
-since a wrong spec dooms every downstream step. It now gets the strongest model.
+The oracle (Test Author) and the vision verdict are analysis, so they stay on Opus (`reason`),
+never on the Sonnet coding tier. Codegen moved Opus→Sonnet 5 (Sonnet is coding-optimized and
+the safety net is deterministic); validate completeness on a live run.
 
 **Prompt caching (Phase 0):** the system block (identity + skill) is stable per
 agent and sent as a cached block (`cache_control`). Cache reads are ~0.1× input

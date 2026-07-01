@@ -433,11 +433,20 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `prompts/<name>.txt` | Identity system prompt per agent (short, rarely changes) |
 | `skills/<name>.md` | Domain knowledge injected into system prompt (evolves over time) |
 
-## Model tiers (3 tiers, set in `tools/llm.py`)
+## Model tiers (TWO models, split by WORKLOAD — set in `tools/llm.py`, 2026-06-27)
 
-- `fast` → `claude-haiku-4-5` — CEO, PM, QA, DevOps, peer consults (cost floor)
-- `strong` → `claude-opus-4-8` — GENERATION: Engineer (code gen + fix loop, `MAX_TOKENS` 8192), Design (kit/mockup), Test Author (the correctness oracle)
-- `reason` → `claude-opus-4-8` — THINKING: Architect + Critic (Fable disabled by Anthropic 2026-06-15)
+**Only two models run everything: Opus 4.8 = deep thinking/decision/analysis; Sonnet 5 =
+hands-on coding.** The three tier KEYS are kept (so call sites/tests don't churn); each maps
+to one of the two models. `MAX_TOKENS` is 8192 on every tier.
+
+- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro (was Haiku — retired; cap raised 2048→8192 so a PRD/QA report can't truncate)
+- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup, QA e2e specs, DevOps config
+- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle (must NOT ride the coding model): Architect, Critic, Test Author (the correctness oracle), Design spec reasoning, design_qa VISION verdict (cap raised 4096→8192 for the test suite + spec)
+
+**Rule: the Test Author (oracle) and the design_qa vision verdict are analysis — keep them on
+Opus (`reason`), never on the Sonnet coding tier.** Verify Sonnet's codegen completeness on a
+live run (the engineer's historical failure is truncation; `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000`
+is the ceiling). `claude-sonnet-5` is the confirmed Sonnet 5 id.
 
 **Adaptive thinking (OPT-IN):** `tools/llm.EFFORT` maps each tier to an effort level
 (architect/critic/engineer `high`, cost-floor agents `standard`). Set `LLM_THINKING=adaptive`

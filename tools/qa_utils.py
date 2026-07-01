@@ -135,7 +135,7 @@ def work_call(system: str, user_msg: str, tier: str, consultable_agents: list,
 def consult(agent_name: str, questions: str, context: str) -> str:
     """
     Ask a peer agent questions without triggering its full artifact-producing run.
-    Lightweight, synchronous, Haiku-tier.
+    Lightweight, synchronous, `fast` tier (Opus decision/analysis).
     """
     system = load_prompt(agent_name)
     skill = load_skill(agent_name)

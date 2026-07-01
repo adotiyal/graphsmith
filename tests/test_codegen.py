@@ -208,7 +208,7 @@ def test_cli_codegen_command_shape(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr("tools.llm._find_claude_bin", lambda: "/fake/claude")
-    out = codegen._cli_codegen("SYS", "make it", staging, "claude-opus-4-8")
+    out = codegen._cli_codegen("SYS", "make it", staging, "claude-sonnet-5")
     cmd = seen["cmd"]
     assert out == "done"
     assert seen["cwd"] == staging                            # session lives in staging
