@@ -9,14 +9,11 @@ PHASE 0 CHANGES:
   and is now sent as a cached block. Cache reads are ~0.1x input cost. The same
   system prompt is reused across an agent's clarification re-runs and across
   Engineer retries, so this is a real, near-free saving.
-- Model/token allocation (0.3): three tiers now.
-    fast   → Haiku   : PM, QA, DevOps, peer consults
-    strong → Sonnet  : Engineer (code gen + fix loop), Design (consumer-app
-                       reasoning), Test Author (authors the correctness oracle —
-                       a 2048-token cap silently truncated whole test suites)
-    reason → Opus    : Architect (highest-leverage reasoning; its spec gates
-                       everything downstream) and future Critic agents.
-  Engineer's output cap is raised — 4096 could not emit a real application.
+- Model/token allocation: TWO models, split by WORKLOAD (CEO/CTO decision 2026-06-27).
+    THINKING / DECISION / ANALYSIS → Opus 4.8   (tiers `fast` + `reason`)
+    HANDS-ON CODING                → Sonnet 5    (tier `strong`)
+  The tier KEYS are kept (fast/strong/reason) so call sites and tests don't churn;
+  only what each maps to changed. See MODELS below for the per-agent split.
 """
 
 import anthropic
@@ -38,21 +35,30 @@ def get_client() -> anthropic.Anthropic:
     return _client
 
 
-# CEO/CTO model allocation (updated 2026-06-15): Opus 4.8 owns BOTH thinking and coding.
-# Anthropic disabled claude-fable-5 (the prior `reason` model — the CLI now 404s it), so
-# THINKING (architect, critic — analysis/conclusions/decisions) and GENERATION (engineer,
-# design, test author — coding) both run on claude-opus-4-8. In claude-cli backend mode
-# (subscription) running Opus on every heavy call costs nothing extra (plan quota only).
+# CEO/CTO model allocation (updated 2026-06-27): TWO models, split by WORKLOAD.
+#   Opus 4.8  = deep thinking / decision-making / analysis
+#   Sonnet 5  = hands-on coding
+# The `fast` tier no longer means Haiku (retired) — it now runs Opus for the lighter
+# DECISION/ANALYSIS agents (CEO, PM, Triage, QA review+diagnosis, peer consults, retro).
+# `reason` runs Opus for the HEAVY thinking (Architect, Critic) AND the analysis work that
+# must NOT ride the coding model: the Test Author (it IS the correctness oracle), the Design
+# SPEC reasoning, and the design_qa VISION verdict. `strong` runs Sonnet for pure code
+# emission (Engineer, Design kit/mockup, QA e2e specs, DevOps config). On the claude-cli
+# (subscription) backend both models cost nothing extra — plan quota only.
 MODELS = {
-    "fast":   "claude-haiku-4-5",   # CEO, PM, QA, DevOps, peer consults — cost floor
-    "strong": "claude-opus-4-8",    # CODING: Engineer, Design (+kit/mockup), Test Author
-    "reason": "claude-opus-4-8",    # THINKING: Architect, Critic — analysis/decisions
+    "fast":   "claude-opus-4-8",     # DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, consult, retro
+    "strong": "claude-sonnet-5",     # CODING: Engineer, Design kit/mockup, QA e2e specs, DevOps config
+    "reason": "claude-opus-4-8",     # DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design_qa vision
 }
 
+# All tiers now share 8192: `fast` rose from 2048 (Haiku-sized) because it now hosts full
+# Opus analysis outputs (a PRD / QA report truncates at 2048), and `reason` rose from 4096
+# because it now hosts the Test Author's whole test suite and the Design spec. max_tokens is
+# a CEILING (no cost for short outputs like triage/consult), bounded by CLAUDE_CODE_MAX_OUTPUT_TOKENS.
 MAX_TOKENS = {
-    "fast":   2048,
-    "strong": 8192,    # raised from 4096 — a real app cannot fit in 4k tokens
-    "reason": 4096,
+    "fast":   8192,
+    "strong": 8192,
+    "reason": 8192,
 }
 
 # Adaptive thinking (OPT-IN, 2026 capability). On Opus/Sonnet 4.6+ you set an EFFORT level
@@ -65,9 +71,9 @@ MAX_TOKENS = {
 # but DO verify reasoning quality on a live run before relying on it. CLI-backend support is a
 # follow-up (no verified `claude -p` effort flag yet); today the knob applies on LLM_BACKEND=api.
 EFFORT = {
-    "fast":   "standard",   # CEO, PM, QA, DevOps, peer consults
-    "strong": "high",       # Engineer, Design, Test Author — generation
-    "reason": "high",       # Architect, Critic — decisions (raise to "xhigh" if quota allows)
+    "fast":   "standard",   # Opus for lighter decisions: CEO, PM, Triage, QA review, consult, retro
+    "strong": "high",       # Sonnet code generation
+    "reason": "high",       # Opus deep thinking + oracle (raise to "xhigh" if quota allows)
 }
 
 

@@ -127,7 +127,7 @@ otherwise it just does the work. No wasted "any questions?" round-trip.
 **Agent-to-agent:** Before generating code, Engineer might ask Architect about an
 ambiguous API contract. These consultations happen silently and synchronously — no
 terminal prompt — and the answer feeds back into the agent's retry of its work call.
-Each agent can make up to **3 total agent-to-agent consultations** across the pipeline run.
+Each agent can make up to **10 total agent-to-agent consultations** across the pipeline run.
 
 **Agent-to-CEO:** If an agent has a question only you can answer (scope, priority, a
 business constraint), the pipeline pauses and you see:
@@ -141,7 +141,7 @@ Should the API support multi-tenancy in v1, or is this single-org only?
 CEO>
 ```
 
-You type your answer and the pipeline resumes. Each agent can ask you up to **3 rounds**
+You type your answer and the pipeline resumes. Each agent can ask you up to **10 rounds**
 of questions. If the agent exhausts its peer consultations, remaining questions are
 automatically escalated to you.
 
@@ -169,6 +169,12 @@ The pipeline is not a one-pass waterfall — it verifies its own work:
   verdicts, your own directives) is recorded, and an end-of-run retrospective distils
   generalizable lessons PER AGENT (`learnings/`). Every agent loads its lessons on the
   next run — the whole company stops repeating its mistakes, not just the engineer.
+  These local lessons stay on the machine that learned them (gitignored). The **generic,
+  stack-agnostic** ones can be **promoted into a committed `learnings/shared/` tier** that
+  ships with the harness, so every clone and every project starts with them —
+  `python -m tools.learnings list` then `promote --agent <a> --index N --as "<generic
+  rewrite>"`. Promotion is human-gated (no auto-commit), keeping stack/product specifics out
+  of the shared tier.
 - **Standing product invariants:** the code-writing agents (architect, test author,
   engineer, QA) get the product's hard, code-verifiable rules — unique/check constraints,
   computed-not-stored columns, enums, route+auth surface — **statically extracted from the
@@ -236,11 +242,14 @@ python -m evals.triage_eval     # real-LLM accuracy of the Triage classifier (ne
 
 ## Model tiers
 
+**Two models, split by workload** — Opus 4.8 for thinking/decision/analysis, Sonnet 5 for
+hands-on coding. The three tier keys map onto those two models:
+
 | Tier | Model | Used by |
 |---|---|---|
-| `fast` | `claude-haiku-4-5` | CEO, PM, QA, DevOps, peer consults — cost floor |
-| `strong` | `claude-opus-4-8` | GENERATION: Engineer (code), Design (kit/mockup), Test Author (the correctness oracle) |
-| `reason` | `claude-opus-4-8` | THINKING: Architect + Critic (Fable retired) |
+| `fast` | `claude-opus-4-8` | DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro |
+| `strong` | `claude-sonnet-5` | CODING: Engineer (code), Design (kit/mockup), QA e2e specs, DevOps config |
+| `reason` | `claude-opus-4-8` | DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design-QA vision |
 
 **Backend:** by default every call goes through the **claude CLI** (`claude -p`,
 billed to your Claude subscription — zero marginal cost, vision included; quality

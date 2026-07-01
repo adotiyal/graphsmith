@@ -424,12 +424,14 @@ def test_all_skills_load_untruncated():
 
 
 def test_model_tiers_thinking_vs_generation():
-    # CEO/CTO allocation: thinking (architect/critic) on the frontier model,
-    # generation (engineer/design/test author) on Opus, consults stay on the floor.
+    # CEO/CTO allocation (2026-06-27): TWO models, split by workload.
+    # Opus 4.8 = thinking/decision/analysis (fast + reason); Sonnet 5 = coding (strong).
     from tools.llm import MODELS
-    assert MODELS["reason"] == "claude-opus-4-8"   # fable disabled by Anthropic
-    assert MODELS["strong"] == "claude-opus-4-8"
-    assert MODELS["fast"] == "claude-haiku-4-5"
+    assert MODELS["reason"] == "claude-opus-4-8"   # deep thinking + oracle (architect/critic/test_author/design-spec/vision)
+    assert MODELS["strong"] == "claude-sonnet-5"   # hands-on coding (engineer/design-kit/qa-e2e/devops)
+    assert MODELS["fast"] == "claude-opus-4-8"     # lighter decision/analysis (ceo/pm/triage/qa-review/consult/retro)
+    # exactly two distinct models across all tiers
+    assert set(MODELS.values()) == {"claude-opus-4-8", "claude-sonnet-5"}
 
 
 def test_llm_backend_dispatch(monkeypatch):
@@ -521,7 +523,7 @@ def test_cli_call_retries_once_on_max_turns(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(llm, "_find_claude_bin", lambda: "/fake/claude")
     monkeypatch.setattr(llm, "_CLI_WORKDIR", str(tmp_path))
-    text, _, _ = llm._cli_call("SYS", "hello", "claude-haiku-4-5")
+    text, _, _ = llm._cli_call("SYS", "hello", "claude-opus-4-8")
     assert text == "recovered"
     assert len(attempts) == 2
     second = attempts[1]
@@ -540,7 +542,7 @@ def test_cli_call_retries_once_on_max_turns(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", fake_fail)
     import pytest as _pytest
     with _pytest.raises(RuntimeError, match="claude-cli call failed"):
-        llm._cli_call("SYS", "hello", "claude-haiku-4-5")
+        llm._cli_call("SYS", "hello", "claude-opus-4-8")
     assert len(attempts) == 1
 
 

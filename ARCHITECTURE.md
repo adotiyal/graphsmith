@@ -9,7 +9,7 @@ authority over both business scope and technical direction (the tech stack is yo
 finalize). Every other role (PM, Designer, Architect, Engineer, QA, DevOps) is an AI agent.
 
 The system is designed around three constraints:
-- **Minimal tokens** — state holds paths, not content; Haiku for all non-code agents
+- **Minimal tokens** — state holds paths, not content; two models (Opus=think, Sonnet=code)
 - **KISS** — one LLM call per agent work phase, flat state schema, no conversation history
 - **Extensible** — adding an agent touches 4 new files and a few lines in one existing file
 
@@ -59,7 +59,7 @@ graphsmith/
 │   ├── qa_utils.py          Bidirectional Q&A — run_with_qa(), consult(), format_qa_context()
 │   ├── repo.py              Read-only codebase access for extend mode (2.1)
 │   ├── design_source.py     Reuse an external design (local dir / git URL of HTML mockups)
-│   ├── learnings.py         Cross-run learning store — load/record/augment_system (2.2)
+│   ├── learnings.py         Cross-run learning — local + committed-shared tiers, promote CLI (2.2)
 │   ├── product.py           Persistent product profile + confirmed stack
 │   ├── project_ctx.py       The single persistent project (workspace/project) + feature ledger
 │   └── trace.py             Per-run trace (nodes + LLM calls/tokens/latency) → traces/<id>.jsonl
@@ -179,17 +179,21 @@ No chat history is passed between agents. The previous agent's *artifact file*
 is the handoff mechanism, not a message thread. Q&A rounds use separate LLM calls
 (question generation + optional consult calls) before the main work call.
 
-### 5. Model tier split (three tiers as of Phase 0)
+### 5. Model allocation (two models, split by workload)
 
-`tools/llm.py` routes calls to three models by leverage:
-- `fast` → `claude-haiku-4-5` — CEO, PM, QA, DevOps, peer consults
-- `strong` → `claude-sonnet-4-6` — Engineer (code gen + fix loop), Design (consumer-app
-  reasoning), Test Author (authors the correctness oracle); output cap 8192
-- `reason` → `claude-opus-4-8` — Architect (and future Critic) — the highest-leverage
-  reasoning in the system; its spec gates everything downstream
+`tools/llm.py` routes calls to **two models, split by workload** (2026-06-27) — Opus 4.8 for
+thinking/decision/analysis, Sonnet 5 for hands-on coding. Three tier keys map onto the two
+models (keys kept so call sites/tests don't churn); `MAX_TOKENS` is 8192 on every tier:
+- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis,
+  peer consults, retro (was Haiku, now retired)
+- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup,
+  QA e2e specs, DevOps config
+- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle: Architect, Critic, Test Author
+  (the correctness oracle), Design spec reasoning, and the design-QA vision verdict
 
-Previously Architect ran on Haiku — the most inverted allocation in the system,
-since a wrong spec dooms every downstream step. It now gets the strongest model.
+The oracle (Test Author) and the vision verdict are analysis, so they stay on Opus (`reason`),
+never on the Sonnet coding tier. Codegen moved Opus→Sonnet 5 (Sonnet is coding-optimized and
+the safety net is deterministic); validate completeness on a live run.
 
 **Prompt caching (Phase 0):** the system block (identity + skill) is stable per
 agent and sent as a cached block (`cache_control`). Cache reads are ~0.1× input
@@ -231,12 +235,12 @@ made a dedicated "any questions?" call first).
 **Agent-to-agent consultations** are resolved synchronously inside the asking
 agent's run: the target runs a lightweight `consult()` (no artifact, just an
 answer), the answer is added to `qa_log`, and the work call is retried with it.
-Cap: **3 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`). Once
+Cap: **10 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`). Once
 the cap is hit, remaining agent questions are **escalated to CEO**, never dropped.
 
 **Agent-to-CEO questions** trigger a graph interrupt via the shared `ceo_qa` node.
 The pipeline pauses, CEO types the answer in the terminal, the answer is injected
-into `qa_log` via `graph.update_state`, and the pipeline resumes. Cap: **3 rounds**
+into `qa_log` via `graph.update_state`, and the pipeline resumes. Cap: **10 rounds**
 of CEO Q&A per agent (`MAX_QA_ROUNDS`).
 
 **Q&A state fields** (`graph/state.py`):
@@ -333,7 +337,7 @@ unblocker. The architect does **not** hardcode a stack: on its first pass it pro
 default (FastAPI + Next.js + Postgres) and escalates a **mandatory** confirmation to the
 CEO/CTO via `ceo_qa` before committing the spec (`agents/architect.py::_ask_stack`). The
 confirmed stack is recorded in `state["tech_stack"]` (sticky across critic retries) and
-drives the engineer and devops. Agent-to-agent Q&A stays capped at 3, after which any
+drives the engineer and devops. Agent-to-agent Q&A stays capped at 10, after which any
 blocker — business or technical — escalates to the CEO/CTO who resolves it.
 
 **New state fields:** `test_path`, `review_attempts`, `review_notes`,
@@ -399,7 +403,19 @@ The company gets smarter over time. `tools/learnings.py` is a persistent store
   Lessons are **deduped** and the store is **char-capped** (oldest trimmed first).
 - The engineer, architect, and test author load their learnings into the system prompt
   (`augment_system`) on every run, so past failures stop recurring across *different*
-  features. `learnings/` is gitignored by default (local memory); un-ignore to share.
+  features.
+- **Two tiers — local vs shared (committed):** the retro writes the gitignored
+  `learnings/<agent>.md` store, which is machine-accumulated, may be stack/product-specific,
+  and is **local to one installation**. A second store `learnings/shared/<agent>.md` is
+  **committed** (un-ignored in `.gitignore`), so its lessons ship with the harness to *every*
+  clone and project. `augment_system` injects both (shared first, then local). A lesson
+  reaches the shared tier only by human-gated **promotion** — `learnings.promote_learning`
+  and the CLI `python -m tools.learnings list` / `promote --agent <a> (--index N --as
+  "<generic rewrite>" | --text "...")` — and **must be product- AND stack-agnostic** (stack
+  specifics live only as a `(Default stack: …)` example). Promote-by-index *graduates* the
+  candidate: it is removed from the local store so it isn't injected twice. The shared tier is
+  kept separate from hand-authored `skills/` so a promoted machine lesson can never corrupt a
+  curated skill, and from the local store so raw candidates are never shipped blindly.
 - **Feedback events + end-of-run retro:** every failure choke point emits a `feedback`
   event into the run trace (`learnings.emit_feedback`); at DONE, `learnings.run_retro`
   distils ≤2 **product-agnostic** lessons per agent and records them for *all* producing

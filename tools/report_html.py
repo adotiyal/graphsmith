@@ -542,7 +542,7 @@ def render_run(state: dict, trace_path: str = "", overseer: dict = None,
                      f'{tiers[tier]["calls"]} calls · {tiers[tier]["in_tokens"]//1000}k in / '
                      f'{tiers[tier]["out_tokens"]//1000}k out') for tier in order) + (
                 '<p class="muted">Cost proxy — on the claude-cli backend this is plan quota, '
-                'not $. strong/reason = Opus, fast = Haiku.</p></div>')
+                'not $. fast/reason = Opus 4.8 (thinking), strong = Sonnet 5 (coding).</p></div>')
 
         fb = [e for e in events if e.get("kind") == "feedback"]
         dec_card = ""

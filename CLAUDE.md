@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A multi-agent pipeline built on LangGraph that automates the full feature-development lifecycle. The user acts as **CEO and CTO** (one human, both business and technical authority — the universal unblocker), and 7 AI agents (CEO, PM, Design, Architect, Engineer, QA, DevOps) take a plain-English feature request through to deployment configuration artifacts. Agents ask each other questions (capped at 3 rounds) and escalate anything unresolved — business or technical — to the CEO/CTO.
+A multi-agent pipeline built on LangGraph that automates the full feature-development lifecycle. The user acts as **CEO and CTO** (one human, both business and technical authority — the universal unblocker), and 7 AI agents (CEO, PM, Design, Architect, Engineer, QA, DevOps) take a plain-English feature request through to deployment configuration artifacts. Agents ask each other questions (capped at 10 rounds) and escalate anything unresolved — business or technical — to the CEO/CTO.
 
 **Tech stack is a CTO decision:** the architect proposes a default (FastAPI + Next.js + Postgres) and escalates a mandatory confirmation to the CEO/CTO before committing the spec; the confirmed stack lives in `state["tech_stack"]` and drives engineer + devops. See `agents/architect.py::_ask_stack`.
 
@@ -350,6 +350,19 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
   test_author, engineer, qa, devops) load their lessons into the system prompt via `augment_system`.
   QA's unit-test-failure distillation also remains. Deduped + capped per agent; `learnings/`
   gitignored. Pinned by `tests/test_self_improvement.py` + `tests/test_retro_feedback.py`.
+- **Two learning tiers — LOCAL (per-installation) vs SHARED (committed, ships with the
+  harness) (2026-06-27):** the retro writes to the gitignored `learnings/<agent>.md` store,
+  which is machine-accumulated, may be stack/product-specific, and never leaves the clone
+  that learned it. A second tier `learnings/shared/<agent>.md` is **committed** (un-ignored in
+  `.gitignore`) so its lessons propagate to EVERY clone and project. A lesson reaches it only
+  by human-gated PROMOTION and MUST be product- AND stack-agnostic (keep stack specifics as a
+  `(Default stack: …)` example). `augment_system` loads BOTH (shared first, then local);
+  `promote_learning` + the CLI `python -m tools.learnings list` / `promote --agent <a>
+  (--index N --as "<generic rewrite>" | --text "...")` graduate a candidate (promote-by-index
+  REMOVES it from local so it isn't injected twice). Kept separate from hand-authored
+  `skills/` so promoted machine lessons never corrupt a curated skill. Pinned by
+  `tests/test_shared_learnings.py`. **Rule: only product- AND stack-agnostic lessons go in the
+  committed shared tier; raw/stack-specific candidates stay in the local store.**
 - **Standing product invariants (knowledge-base wiring, 2026-06-17):** the generation agents
   (architect, test_author, engineer, qa) carried ZERO standing product context — they reasoned
   about the product from per-run artifacts alone. Now `registry.extract_product_invariants(root)`
@@ -426,7 +439,7 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `tools/repo.py` | Read-only existing-codebase access for extend mode (list/grep/read/map + guarded write) |
 | `tools/design_source.py` | External design source (Change 1) — `resolve` (local dir or shallow git clone), `find_mockups`/`load_primary_mockup` (manifest else shallowest `*.html`). Feeds `design._do_imported` to REUSE an existing design + skip the 3-directions pick; best-effort, never raises |
 | `tools/codegen.py` | I1/I17 — ALL code-writing agents (engineer, test_author, qa-e2e, design-kit) change files via REAL tools on a staging copy + guarded sync-back. `generate_in_domain` = inverted guard (agent may only touch its own domain; Read-before-write prevents blind overwrites that dropped exports/self-deleted modules) |
-| `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2) |
+| `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2); **two tiers**: gitignored LOCAL `learnings/<agent>.md` + COMMITTED `learnings/shared/<agent>.md` (`load_shared_learnings`/`promote_learning` + `python -m tools.learnings list`/`promote` CLI = human-gated graduation of GENERIC lessons into the harness) |
 | `tools/contract.py` | Feature Contract spine — parse PRD AC ids (`parse_acs`), extract `# covers:` AC refs, deterministic `coverage` (every AC tested, every UI AC has an e2e) |
 | `tools/product.py` (+`registry`) | Interface Contract — persisted cumulative kit testids + microcopy (`load/save_interface_contract`); `registry.extract_kit_interface` + `check_interface_additive` enforce ADDITIVE-ONLY across phases (no dropped guarantee). `registry.resolve_kit_testids` resolves STATE-SUFFIX kit components (`${base}-add-friend`) so the REAL rendered ids are surfaced and a base-only e2e assertion is caught; `kit_state_suffixes` feeds the variants to QA authoring |
 | `tools/product.py` | Persistent product profile (category/users/brand/goals) + persisted stack; `_cap` makes over-cap reads WARN (no silent head-slice) |
@@ -448,11 +461,20 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `prompts/<name>.txt` | Identity system prompt per agent (short, rarely changes) |
 | `skills/<name>.md` | Domain knowledge injected into system prompt (evolves over time) |
 
-## Model tiers (3 tiers, set in `tools/llm.py`)
+## Model tiers (TWO models, split by WORKLOAD — set in `tools/llm.py`, 2026-06-27)
 
-- `fast` → `claude-haiku-4-5` — CEO, PM, QA, DevOps, peer consults (cost floor)
-- `strong` → `claude-opus-4-8` — GENERATION: Engineer (code gen + fix loop, `MAX_TOKENS` 8192), Design (kit/mockup), Test Author (the correctness oracle)
-- `reason` → `claude-opus-4-8` — THINKING: Architect + Critic (Fable disabled by Anthropic 2026-06-15)
+**Only two models run everything: Opus 4.8 = deep thinking/decision/analysis; Sonnet 5 =
+hands-on coding.** The three tier KEYS are kept (so call sites/tests don't churn); each maps
+to one of the two models. `MAX_TOKENS` is 8192 on every tier.
+
+- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro (was Haiku — retired; cap raised 2048→8192 so a PRD/QA report can't truncate)
+- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup, QA e2e specs, DevOps config
+- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle (must NOT ride the coding model): Architect, Critic, Test Author (the correctness oracle), Design spec reasoning, design_qa VISION verdict (cap raised 4096→8192 for the test suite + spec)
+
+**Rule: the Test Author (oracle) and the design_qa vision verdict are analysis — keep them on
+Opus (`reason`), never on the Sonnet coding tier.** Verify Sonnet's codegen completeness on a
+live run (the engineer's historical failure is truncation; `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000`
+is the ceiling). `claude-sonnet-5` is the confirmed Sonnet 5 id.
 
 **Adaptive thinking (OPT-IN):** `tools/llm.EFFORT` maps each tier to an effort level
 (architect/critic/engineer `high`, cost-floor agents `standard`). Set `LLM_THINKING=adaptive`
@@ -519,7 +541,7 @@ calls; robust markers for marker-in-artifact calls.** Pinned by `tests/test_stru
 
 **Agent-to-agent (synchronous):**
 - Peer questions resolved via `consult(target, question, context)` — lightweight LLM call, no artifact; answer added to `qa_log`, then the work call is retried
-- Hard cap: **3 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`)
+- Hard cap: **10 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`)
 - If cap reached, remaining agent questions are **escalated to CEO** automatically
 
 **Agent-to-CEO (graph interrupt):**
@@ -527,7 +549,7 @@ calls; robust markers for marker-in-artifact calls.** Pinned by `tests/test_stru
 - Graph routes to `ceo_qa` node, `interrupt_before` fires, pipeline pauses
 - `main.py` prints the questions, reads CEO's answer, calls `graph.update_state({"ceo_qa_answer": answer})`
 - Pipeline resumes; `ceo_qa` node stores the answer in `qa_log` and routes back to the asking agent
-- Hard cap: **3 CEO Q&A rounds** per agent (`MAX_QA_ROUNDS`)
+- Hard cap: **10 CEO Q&A rounds** per agent (`MAX_QA_ROUNDS`)
 
 **Q&A state fields:**
 ```
@@ -557,7 +579,7 @@ No other files change.
 - `graph/graph.py` is the **only** file that defines edges
 - Engineer retry loop is hard-capped at `MAX_FIX_ATTEMPTS = 3`
 - Pipeline **always completes** — DevOps emits dry-run manifest even if tests fail
-- Agent-to-agent cap is hard at 3 — overflow escalates to CEO, never silently dropped
+- Agent-to-agent cap is hard at 10 — overflow escalates to CEO, never silently dropped
 - **TDD invariant:** `test_author` owns `tests/`; engineer must never write/edit it (enforced in `engineer._parse_and_write_files`)
 - **PR only after approval:** PR creation lives in `ship.py`, gated by `pr_gate` — never auto-open
 - Critic loop bounded by `MAX_REVIEW_ATTEMPTS=2`; approval rejects loop back with `review_notes`

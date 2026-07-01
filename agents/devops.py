@@ -83,7 +83,7 @@ Rules:
 - Keep each file under 100 lines
 """
 
-    questions, raw_output = work_call(system, user_msg, "fast", CONSULT, allow_clarify)
+    questions, raw_output = work_call(system, user_msg, "strong", CONSULT, allow_clarify)
     if questions:
         return {"_clarify": questions}
 
