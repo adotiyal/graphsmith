@@ -177,7 +177,7 @@ If this feature has NO user-facing surface, write:
 "NO UI SURFACE - backend feature only." and stop.
 """
 
-    questions, spec = work_call(system, user_msg, "strong", CONSULT, allow_clarify)
+    questions, spec = work_call(system, user_msg, "reason", CONSULT, allow_clarify)
     if questions:
         return {"_clarify": questions}
 

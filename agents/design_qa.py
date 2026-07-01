@@ -127,7 +127,7 @@ Put every divergence in `findings`, one per line as "- [element]: expected <desi
 got <app>" (findings may be empty when ALIGNED).
 """
     data = call_structured(
-        system, user_msg, _VERDICT_SCHEMA, tier="strong",
+        system, user_msg, _VERDICT_SCHEMA, tier="reason",
         default={"verdict": "MISALIGNED",
                  "findings": "(design-QA verdict could not be parsed — treated as MISALIGNED)"},
         images=[("LIVE APP (what users currently see):", app_png),

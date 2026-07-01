@@ -102,7 +102,7 @@ Rules:
         if isinstance(test_files, dict):   # a clarify request
             return test_files
     else:
-        questions, raw = work_call(system, user_msg, "strong", CONSULT, allow_clarify)
+        questions, raw = work_call(system, user_msg, "reason", CONSULT, allow_clarify)
         if questions:
             return {"_clarify": questions}
         test_files = _write_test_files(raw, state, extend)
@@ -122,7 +122,7 @@ Rules:
             test_files = _author_via_tools(state, system, correction, extend,
                                            allow_clarify=False)
         else:
-            _, raw = work_call(system, correction, "strong", CONSULT, allow_clarify=False)
+            _, raw = work_call(system, correction, "reason", CONSULT, allow_clarify=False)
             test_files = _write_test_files(raw, state, extend)
         if not _has_real_tests(state, test_files, extend):
             return {"_clarify": {"ceo":
@@ -145,7 +145,7 @@ Rules:
         if _use_tools():
             test_files = _author_via_tools(state, system, gap, extend, allow_clarify=False)
         else:
-            _, raw = work_call(system, gap, "strong", CONSULT, allow_clarify=False)
+            _, raw = work_call(system, gap, "reason", CONSULT, allow_clarify=False)
             test_files = _write_test_files(raw, state, extend) or test_files
 
     return {

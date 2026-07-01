@@ -8,7 +8,7 @@ this node simply formats it into a clean brief for PM.
 
 Why not just pass raw input to PM? Because raw CEO language ("make auth work")
 is ambiguous. CEO agent's job is to add: scope, constraints, priority.
-That's cheap (haiku) but saves PM from hallucinating scope.
+That's a light Opus (decision-tier) call but saves PM from hallucinating scope.
 """
 
 from graph.state import ProjectState
