@@ -184,6 +184,7 @@ def cmd_start(graph, args):
         "approval_pending": None, "approval_decision": None, "approval_feedback": None,
         "tech_stack": None, "tech_stack_confirmed": False, "target_repo": target_repo,
         "repo_map_path": None, "detected_stack": None, "managed_project": managed,
+        "design_source": getattr(args, "design_source", None),
         "project_ledger": ledger or None, "test_files": [], "security_warnings": [],
         "code_files": [], "product_profile": product.load_profile() or None,
         "product_invariants": registry.extract_product_invariants(target_repo) or None,
@@ -262,6 +263,8 @@ if __name__ == "__main__":
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("start"); s.add_argument("--feature", required=True); s.add_argument("--repo", default=None)
+    s.add_argument("--design-source", default=None,
+                   help="Local dir OR git URL of an existing design (HTML mockups) to REUSE")
     a = sub.add_parser("answer"); a.add_argument("--thread", required=True); a.add_argument("--text", required=True)
     ap = sub.add_parser("approve"); ap.add_argument("--thread", required=True); ap.add_argument("--feedback", default=None)
     rj = sub.add_parser("reject"); rj.add_argument("--thread", required=True); rj.add_argument("--feedback", required=True)

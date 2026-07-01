@@ -80,6 +80,12 @@ class ProjectState(TypedDict):
     repo_map_path:  Optional[str]  # path to the generated repo-map artifact
     detected_stack: Optional[str]  # stack detected from the existing repo (extend mode)
 
+    # --- External design source (Change 1) ---
+    # Optional local dir OR git URL of an existing design (HTML mockups). When set + usable,
+    # Design REUSES it (matches the imported mockup, skips the 3-directions human pick);
+    # absent/unusable → normal generate-from-repo-patterns flow. See tools/design_source.py.
+    design_source:  Optional[str]
+
     # --- Project continuity (single persistent product across runs) ---
     managed_project: bool          # True = the platform's own persistent project (workspace/project)
     project_ledger:  Optional[str]  # summary of features already built — fed to planning agents

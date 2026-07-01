@@ -23,6 +23,7 @@ docker ps
 # 4. Run — interactive (you answer gates/questions at the terminal)
 python main.py                          # build/extend the SINGLE persistent project
 python main.py --repo /path/to/repo     # extend an EXTERNAL repo instead
+python main.py --design-source <dir|git-url>   # REUSE an existing design (HTML mockups)
 python main.py --resume <project-id>    # resume an interrupted run
 # reset the project: rm -rf workspace/project
 ```
@@ -75,9 +76,12 @@ You (CEO input)
                        no-op for greenfield)
   → Design agent       design/design_spec.md + 3 direction mockups
                        designs from discovery (users, brand, job-to-be-done) using your
-                       product profile; proposes THREE design directions with rationale
+                       product profile; proposes THREE design directions with rationale.
+                       OR, with --design-source <dir|git-url>, REUSES an existing design
+                       (HTML mockups): matches it and skips the choice below
   → ✋ Design choice    you open review/design_options.html and pick A, B or C —
                        the winner becomes THE design and drives the component kit
+                       (skipped when a design source is reused)
   → Design Critic      reviews the design vs PRD/user needs (retry or escalate)
   → Architect agent    design/tech_spec.md  proposes the tech stack and asks YOU
                        (as CTO) to confirm/change it before committing the spec

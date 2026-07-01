@@ -21,7 +21,7 @@ from tools.file_io import load_prompt, load_skill, read_artifact, write_artifact
 from tools.registry import validate_components
 import os
 
-from tools import codegen, product, report_html
+from tools import codegen, product, report_html, design_source
 from tools import repo as repo_tools
 from tools.file_io import WORKSPACE_ROOT
 from tools.qa_utils import run_with_qa, work_call, format_qa_context
@@ -73,6 +73,15 @@ def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True
     prd = read_artifact(state["prd_path"])
     profile = state.get("product_profile") or "(no product profile on file — ask the CEO/CTO if you need product/user/brand context)"
     qa_ctx = format_qa_context(qa_log, "design")
+
+    # Change 1 — EXTERNAL DESIGN SOURCE: if the CEO/CTO pointed Design at an existing design
+    # (a local dir or git URL of HTML mockups), REUSE it — write a spec that matches the
+    # imported mockup, use that mockup AS the design, and SKIP the 3-directions generation +
+    # human pick. Unusable/absent → fall through to the normal generate flow below.
+    imported = _resolve_design_source(state)
+    if imported is not None:
+        return _do_imported(state, system, prd, profile, qa_ctx, imported,
+                            qa_log, rounds, allow_clarify)
 
     # —— RESUME PATH (direction-choice round-trip): the spec + the 3 direction mockups
     # already exist on disk for THIS run and we're re-entered after the CEO's choice
@@ -310,6 +319,113 @@ def _finalize(state: dict, system: str, spec: str, spec_path: str, profile: str,
         "design_choice": chosen["id"],
         "review_notes": None,     # consumed
         "review_action": None,    # reset routing signal before entering the design critic
+        "qa_log": qa_log,
+        "qa_rounds": rounds,
+        "ceo_qa_from": None,
+    }
+
+
+def _resolve_design_source(state: dict):
+    """Resolve state['design_source'] to {dir, name, html} for the primary imported mockup,
+    or None when unset/unresolvable/no usable HTML (→ normal generate flow). Never raises."""
+    src = (state.get("design_source") or "").strip()
+    if not src:
+        return None
+    localdir = design_source.resolve(src)
+    if not localdir:
+        return None
+    primary = design_source.load_primary_mockup(localdir)
+    if not primary:
+        return None
+    return {"dir": localdir, "name": primary[0], "html": primary[1]}
+
+
+def _do_imported(state: dict, system: str, prd: str, profile: str, qa_ctx: str,
+                 imported: dict, qa_log: list, rounds: dict, allow_clarify: bool) -> dict:
+    """Design REUSE path (Change 1): write a spec that MATCHES the imported mockup, use that
+    mockup AS the design (design_qa baseline + the engineer's visual truth), build the kit
+    from it, and skip the 3-directions human pick entirely. Regenerates on a critic re-run."""
+    mockup_html = imported["html"]
+
+    ds = product.load_design_system()
+    ds_block = f"\n\nESTABLISHED DESIGN SYSTEM (extend, never contradict):\n{ds}" if ds else ""
+    feedback = state.get("review_notes")
+    feedback_block = f"\n\nDESIGN CRITIC FOUND GAPS (fix every one):\n{feedback}" if feedback else ""
+
+    user_msg = f"""An existing design has ALREADY been chosen and is provided below. Do NOT
+propose design directions and do NOT invent a new look — write the UI/UX spec to MATCH the
+imported design, reproducing its screens, states, and EXACT microcopy.
+
+PRODUCT PROFILE (standing context — who/what/brand/goals):
+{profile}
+
+PRD (the feature):
+{prd}
+
+IMPORTED DESIGN (the visual + copy truth — reproduce it faithfully):
+{mockup_html[:12000]}
+{ds_block}
+{qa_ctx}{feedback_block}
+
+Produce the spec with ONLY these sections (NO '## Design Directions' — the design is chosen):
+## Design Context
+## User Flows  (entry → steps → success, incl. first-run/empty + unhappy paths)
+## Screens & Components  (per screen: components + data fields; all 4 states)
+## Content & Microcopy  (the EXACT words from the imported design)
+## Accessibility, Responsive & Theming  (keyboard/contrast; 375px vs 1280px; light/dark tokens)
+## SEO & Discoverability  (title, meta description, single H1, landmarks, JSON-LD type)
+## Design System  (carry forward + extend; this is PERSISTED and becomes the law)
+## Flagged Items  (or "None.")
+
+If this feature has NO user-facing surface, write "NO UI SURFACE - backend feature only." and stop.
+"""
+    questions, spec = work_call(system, user_msg, "strong", CONSULT, allow_clarify)
+    if questions:
+        return {"_clarify": questions}
+
+    valid, tool_msg = validate_components(spec)
+    if not valid:
+        spec += f"\n\n---\n⚠️ COMPONENT VALIDATION WARNING:\n{tool_msg}"
+
+    # Provenance: record the source so the run is auditable and licensing is traceable.
+    if "## Design Source" not in spec:
+        spec += (f"\n\n## Design Source\nREUSED an external design: "
+                 f"{state.get('design_source')} (screen: {imported['name']}). "
+                 f"Directions + human pick skipped — the imported design is authoritative.")
+
+    path = write_artifact(state["project_id"], "design", "design_spec.md", spec)
+
+    m = re.search(r"##\s*Design System\s*\n(.*?)(?:\n##\s|\Z)", spec, re.DOTALL)
+    if m and m.group(1).strip():
+        product.save_design_system(m.group(1).strip())
+
+    # Backend-only import (rare) — no mockup/kit, mirror the normal NO-UI return.
+    if "NO UI SURFACE" in spec.upper():
+        return {
+            "current_node": "design", "design_path": path, "design_spec_path": path,
+            "design_mockup_path": None, "design_component_files": [],
+            "components_manifest_path": None, "review_notes": None, "review_action": None,
+            "qa_log": qa_log, "qa_rounds": rounds, "ceo_qa_from": None,
+        }
+
+    # The imported mockup IS the design: design_qa's baseline + the engineer's visual truth.
+    mockup_path = write_artifact(state["project_id"], "design", "mockup.html", mockup_html)
+
+    component_files, manifest_path = [], None
+    if _react_stack_known(state):
+        component_files, manifest_path = _build_components(system, spec, mockup_html, state)
+
+    return {
+        "current_node": "design",
+        "design_path": path,
+        "design_spec_path": path,
+        "design_mockup_path": mockup_path,
+        "design_component_files": component_files,
+        "components_manifest_path": manifest_path,
+        "design_options": [],
+        "design_choice": "imported",
+        "review_notes": None,
+        "review_action": None,
         "qa_log": qa_log,
         "qa_rounds": rounds,
         "ceo_qa_from": None,

@@ -30,7 +30,7 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40]
 
 
-def run_new_feature(graph, target_repo: str = None):
+def run_new_feature(graph, target_repo: str = None, design_source: str = None):
     print("\n=== CEO INPUT ===")
 
     # Project continuity: unless you point at an external --repo, every run targets the
@@ -110,6 +110,7 @@ def run_new_feature(graph, target_repo: str = None):
         "target_repo": target_repo,
         "repo_map_path": None,
         "detected_stack": None,
+        "design_source": design_source,
         "managed_project": managed,
         "project_ledger": ledger or None,
         "test_files": [],
@@ -308,6 +309,9 @@ if __name__ == "__main__":
     parser.add_argument("--resume", type=str, help="Project ID to resume")
     parser.add_argument("--repo", type=str, default=None,
                         help="Path to an existing repo to EXTEND (omit for greenfield)")
+    parser.add_argument("--design-source", type=str, default=None,
+                        help="Local dir OR git URL of an existing design (HTML mockups) to "
+                             "REUSE — Design matches it and skips the 3-directions pick")
     args = parser.parse_args()
 
     graph = build_graph()
@@ -318,4 +322,8 @@ if __name__ == "__main__":
         repo = os.path.abspath(args.repo) if args.repo else None
         if repo and not os.path.isdir(repo):
             parser.error(f"--repo path is not a directory: {repo}")
-        run_new_feature(graph, target_repo=repo)
+        # A local design source is abspath'd; a git URL is passed through untouched.
+        design_source = args.design_source
+        if design_source and os.path.isdir(design_source):
+            design_source = os.path.abspath(design_source)
+        run_new_feature(graph, target_repo=repo, design_source=design_source)

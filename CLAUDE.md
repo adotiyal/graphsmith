@@ -186,6 +186,20 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
   `## Chosen Direction`). The winner becomes `mockup.html`; the KIT is built from the
   winner only. Resume never regenerates (artifacts on disk are the round-trip state).
   Critic re-runs keep the recorded choice and regenerate only the chosen mockup.
+- **External design source — REUSE existing designs (Change 1):** `--design-source <path|git-url>`
+  (or `state["design_source"]`) points Design at an EXISTING design — a local dir or a
+  shallow-cloned git repo of HTML mockups (`tools/design_source.py`: `resolve` clones a URL /
+  passes a local path; `find_mockups` picks by a `design_manifest.md` else shallowest `*.html`,
+  skipping vendor/hidden dirs). When a usable mockup is present, `design._do_imported` writes a
+  spec that MATCHES the import, uses the imported HTML AS `mockup.html` (so it's the design_qa
+  vision baseline + the engineer's visual truth), builds the kit from it, and **SKIPS the
+  3-directions generation + the human pick** (per the CEO decision to reuse a chosen design as
+  authoritative; provenance recorded in the spec's `## Design System`/`## Design Source`).
+  Absent/unresolvable/no-HTML → normal generate flow, byte-for-byte. The imported kit still
+  runs the ADDITIVE interface contract + testid-uniqueness guards (an import that drops a
+  prior-phase testid triggers the existing restore round). Figma is deferred (its MCP needs
+  interactive OAuth). Pinned by `tests/test_design_source.py`. **Rule: an imported design plugs
+  into the EXISTING mockup→kit path + guards — reuse the source of the mockup, not the pipeline.**
 - **HTML review layer (`tools/report_html.py`, dual-surface decision):** `.md` stays the
   canonical agent-readable artifact (token-cheap, regex-parseable); DETERMINISTIC
   templating (zero LLM) renders the human pages: `review/{prd,pr}_gate.html`
@@ -410,6 +424,7 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `tools/registry.py` | Deterministic tools — linter, **toolchain-detecting** test runner (`detect_toolchains`/`run_project_tests`: pytest+vitest per layer), validators, **`extract_product_invariants`** (static models/routers → standing product context), **code-quality layer** (`format_code`, `code_quality_report`, `check_frontend_quality_tooling`, **`check_dependencies`** = dependency lock §2.3/I7, **`measure_coverage`**/**`check_quality_gate`** = opt-in soft gate §2.1/2.2) |
 | `tools/qa_utils.py` | Bidirectional Q&A — `run_with_qa()`, `consult()`, `format_qa_context()`, **`product_invariants_block`** (injects code-derived invariants into architect/test_author/engineer/qa) |
 | `tools/repo.py` | Read-only existing-codebase access for extend mode (list/grep/read/map + guarded write) |
+| `tools/design_source.py` | External design source (Change 1) — `resolve` (local dir or shallow git clone), `find_mockups`/`load_primary_mockup` (manifest else shallowest `*.html`). Feeds `design._do_imported` to REUSE an existing design + skip the 3-directions pick; best-effort, never raises |
 | `tools/codegen.py` | I1/I17 — ALL code-writing agents (engineer, test_author, qa-e2e, design-kit) change files via REAL tools on a staging copy + guarded sync-back. `generate_in_domain` = inverted guard (agent may only touch its own domain; Read-before-write prevents blind overwrites that dropped exports/self-deleted modules) |
 | `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2) |
 | `tools/contract.py` | Feature Contract spine — parse PRD AC ids (`parse_acs`), extract `# covers:` AC refs, deterministic `coverage` (every AC tested, every UI AC has an e2e) |
