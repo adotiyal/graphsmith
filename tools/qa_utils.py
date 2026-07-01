@@ -17,9 +17,9 @@ single work call:
     the graph interrupt via the shared ceo_qa node.
 
 Caps:
-  - MAX_AGENT_INTERACTIONS (3): total peer consult() calls per agent. Overflow
+  - MAX_AGENT_INTERACTIONS (10): total peer consult() calls per agent. Overflow
     is escalated to CEO, never silently dropped.
-  - MAX_QA_ROUNDS (3): times an agent may pause for CEO input. Once exhausted,
+  - MAX_QA_ROUNDS (10): times an agent may pause for CEO input. Once exhausted,
     the agent is forced to produce output with what it has.
 
 CONTRACT for an agent's task_fn:
@@ -37,8 +37,8 @@ from pathlib import Path
 from tools.llm import call_llm
 from tools.file_io import load_prompt, load_skill, read_artifact, MAX_READ_CHARS
 
-MAX_QA_ROUNDS = 3            # max CEO pauses per agent
-MAX_AGENT_INTERACTIONS = 3   # max peer consult() calls per agent
+MAX_QA_ROUNDS = 10            # max CEO pauses per agent
+MAX_AGENT_INTERACTIONS = 10   # max peer consult() calls per agent
 
 
 def run_with_qa(state: dict, agent_name: str, task_fn, consultable_agents: list = None) -> dict:

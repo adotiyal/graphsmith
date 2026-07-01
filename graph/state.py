@@ -45,7 +45,7 @@ class ProjectState(TypedDict):
     # Every agent reads it for context; agents append to it when asking/answering.
     qa_log:            list           # [{from, to, question, answer, round}]
     qa_rounds:         dict           # {agent_name: rounds_used} — CEO Q&A rounds, caps at MAX_QA_ROUNDS
-    agent_qa_counts:   dict           # {agent_name: int} — total agent-to-agent consult() calls, caps at MAX_AGENT_INTERACTIONS (3)
+    agent_qa_counts:   dict           # {agent_name: int} — total agent-to-agent consult() calls, caps at MAX_AGENT_INTERACTIONS (10)
     ceo_qa_pending:    Optional[str]  # formatted questions for CEO (triggers interrupt)
     ceo_qa_from:       Optional[str]  # which agent is waiting for CEO's answer
     ceo_qa_answer:     Optional[str]  # CEO's answer, injected by main.py via update_state
