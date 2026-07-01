@@ -58,6 +58,7 @@ graphsmith/
 │   ├── registry.py          Deterministic tools: linter, test runner, validators
 │   ├── qa_utils.py          Bidirectional Q&A — run_with_qa(), consult(), format_qa_context()
 │   ├── repo.py              Read-only codebase access for extend mode (2.1)
+│   ├── design_source.py     Reuse an external design (local dir / git URL of HTML mockups)
 │   ├── learnings.py         Cross-run learning — local + committed-shared tiers, promote CLI (2.2)
 │   ├── product.py           Persistent product profile + confirmed stack
 │   ├── project_ctx.py       The single persistent project (workspace/project) + feature ledger
@@ -496,8 +497,16 @@ actually work — discovery first, then design.
   with the real microcopy — a reviewable design board the CEO/CTO opens in a browser.
   A second `strong`-tier call grounded in the just-written spec; skipped for backend-only
   features (`NO UI SURFACE`). Path in `state["design_mockup_path"]`; `main.py` prints it.
+- **Reuse an external design (Change 1):** `--design-source <dir|git-url>`
+  (`state["design_source"]`, `tools/design_source.py`) lets Design REUSE an existing design
+  instead of generating one. A local dir is used as-is; a git URL is shallow-cloned; the
+  primary HTML mockup is picked by a `design_manifest.md` or the shallowest `*.html`. When a
+  usable mockup exists, `design._do_imported` writes a spec that MATCHES it, uses the imported
+  HTML as `mockup.html` (the design-QA baseline + engineer visual truth), builds the kit from
+  it through the SAME additive-interface + testid-uniqueness guards, and skips the 3-directions
+  human pick. Absent/unusable → normal generate flow. Figma is deferred (interactive OAuth).
 
-**New state fields:** `product_profile`, `design_mockup_path`.
+**New state fields:** `product_profile`, `design_mockup_path`, `design_source`.
 
 ### 14. Triage / change-type routing + stack persistence (1→10 ergonomics)
 
