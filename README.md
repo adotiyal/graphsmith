@@ -123,7 +123,7 @@ otherwise it just does the work. No wasted "any questions?" round-trip.
 **Agent-to-agent:** Before generating code, Engineer might ask Architect about an
 ambiguous API contract. These consultations happen silently and synchronously — no
 terminal prompt — and the answer feeds back into the agent's retry of its work call.
-Each agent can make up to **3 total agent-to-agent consultations** across the pipeline run.
+Each agent can make up to **10 total agent-to-agent consultations** across the pipeline run.
 
 **Agent-to-CEO:** If an agent has a question only you can answer (scope, priority, a
 business constraint), the pipeline pauses and you see:
@@ -137,7 +137,7 @@ Should the API support multi-tenancy in v1, or is this single-org only?
 CEO>
 ```
 
-You type your answer and the pipeline resumes. Each agent can ask you up to **3 rounds**
+You type your answer and the pipeline resumes. Each agent can ask you up to **10 rounds**
 of questions. If the agent exhausts its peer consultations, remaining questions are
 automatically escalated to you.
 

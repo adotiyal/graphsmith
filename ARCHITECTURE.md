@@ -230,12 +230,12 @@ made a dedicated "any questions?" call first).
 **Agent-to-agent consultations** are resolved synchronously inside the asking
 agent's run: the target runs a lightweight `consult()` (no artifact, just an
 answer), the answer is added to `qa_log`, and the work call is retried with it.
-Cap: **3 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`). Once
+Cap: **10 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`). Once
 the cap is hit, remaining agent questions are **escalated to CEO**, never dropped.
 
 **Agent-to-CEO questions** trigger a graph interrupt via the shared `ceo_qa` node.
 The pipeline pauses, CEO types the answer in the terminal, the answer is injected
-into `qa_log` via `graph.update_state`, and the pipeline resumes. Cap: **3 rounds**
+into `qa_log` via `graph.update_state`, and the pipeline resumes. Cap: **10 rounds**
 of CEO Q&A per agent (`MAX_QA_ROUNDS`).
 
 **Q&A state fields** (`graph/state.py`):
@@ -332,7 +332,7 @@ unblocker. The architect does **not** hardcode a stack: on its first pass it pro
 default (FastAPI + Next.js + Postgres) and escalates a **mandatory** confirmation to the
 CEO/CTO via `ceo_qa` before committing the spec (`agents/architect.py::_ask_stack`). The
 confirmed stack is recorded in `state["tech_stack"]` (sticky across critic retries) and
-drives the engineer and devops. Agent-to-agent Q&A stays capped at 3, after which any
+drives the engineer and devops. Agent-to-agent Q&A stays capped at 10, after which any
 blocker — business or technical — escalates to the CEO/CTO who resolves it.
 
 **New state fields:** `test_path`, `review_attempts`, `review_notes`,

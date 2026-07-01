@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A multi-agent pipeline built on LangGraph that automates the full feature-development lifecycle. The user acts as **CEO and CTO** (one human, both business and technical authority — the universal unblocker), and 7 AI agents (CEO, PM, Design, Architect, Engineer, QA, DevOps) take a plain-English feature request through to deployment configuration artifacts. Agents ask each other questions (capped at 3 rounds) and escalate anything unresolved — business or technical — to the CEO/CTO.
+A multi-agent pipeline built on LangGraph that automates the full feature-development lifecycle. The user acts as **CEO and CTO** (one human, both business and technical authority — the universal unblocker), and 7 AI agents (CEO, PM, Design, Architect, Engineer, QA, DevOps) take a plain-English feature request through to deployment configuration artifacts. Agents ask each other questions (capped at 10 rounds) and escalate anything unresolved — business or technical — to the CEO/CTO.
 
 **Tech stack is a CTO decision:** the architect proposes a default (FastAPI + Next.js + Postgres) and escalates a mandatory confirmation to the CEO/CTO before committing the spec; the confirmed stack lives in `state["tech_stack"]` and drives engineer + devops. See `agents/architect.py::_ask_stack`.
 
@@ -504,7 +504,7 @@ calls; robust markers for marker-in-artifact calls.** Pinned by `tests/test_stru
 
 **Agent-to-agent (synchronous):**
 - Peer questions resolved via `consult(target, question, context)` — lightweight LLM call, no artifact; answer added to `qa_log`, then the work call is retried
-- Hard cap: **3 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`)
+- Hard cap: **10 total agent-to-agent calls** per agent (`MAX_AGENT_INTERACTIONS`)
 - If cap reached, remaining agent questions are **escalated to CEO** automatically
 
 **Agent-to-CEO (graph interrupt):**
@@ -512,7 +512,7 @@ calls; robust markers for marker-in-artifact calls.** Pinned by `tests/test_stru
 - Graph routes to `ceo_qa` node, `interrupt_before` fires, pipeline pauses
 - `main.py` prints the questions, reads CEO's answer, calls `graph.update_state({"ceo_qa_answer": answer})`
 - Pipeline resumes; `ceo_qa` node stores the answer in `qa_log` and routes back to the asking agent
-- Hard cap: **3 CEO Q&A rounds** per agent (`MAX_QA_ROUNDS`)
+- Hard cap: **10 CEO Q&A rounds** per agent (`MAX_QA_ROUNDS`)
 
 **Q&A state fields:**
 ```
@@ -542,7 +542,7 @@ No other files change.
 - `graph/graph.py` is the **only** file that defines edges
 - Engineer retry loop is hard-capped at `MAX_FIX_ATTEMPTS = 3`
 - Pipeline **always completes** — DevOps emits dry-run manifest even if tests fail
-- Agent-to-agent cap is hard at 3 — overflow escalates to CEO, never silently dropped
+- Agent-to-agent cap is hard at 10 — overflow escalates to CEO, never silently dropped
 - **TDD invariant:** `test_author` owns `tests/`; engineer must never write/edit it (enforced in `engineer._parse_and_write_files`)
 - **PR only after approval:** PR creation lives in `ship.py`, gated by `pr_gate` — never auto-open
 - Critic loop bounded by `MAX_REVIEW_ATTEMPTS=2`; approval rejects loop back with `review_notes`
