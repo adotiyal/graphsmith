@@ -749,10 +749,20 @@ def _has_py_tests(d: Path) -> bool:
 
 
 def _node_runner(pkg_path: Path) -> str:
-    """Pick the JS test runner from package.json deps/scripts."""
+    """Pick the JS test runner from package.json — CONVENTION FIRST.
+
+    If the project defines its own `test` script we run THAT (`npm test`): the project
+    scopes its own unit run (e.g. it may exclude DB-dependent integration specs the
+    throwaway container can't satisfy). Only when there is no `test` script do we fall
+    back to invoking the raw tool (`vitest`/`jest`) by detected dependency — otherwise a
+    naive `npx vitest run` sweeps in the whole suite, including tests that need a live
+    database, and the engineer⇄QA loop burns every attempt on infra noise."""
     try:
         data = json.loads(pkg_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return "npm-test"
+    scripts = data.get("scripts", {})
+    if isinstance(scripts, dict) and str(scripts.get("test", "")).strip():
         return "npm-test"
     deps = {**data.get("devDependencies", {}), **data.get("dependencies", {})}
     if "vitest" in deps:
@@ -813,6 +823,30 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+# A JS unit-test container has no database and only the platform's own npm binaries; when
+# the output matches these patterns the failure is the ENVIRONMENT, not the code (mirrors
+# the "environment, not code" port-conflict marker used by run_compose_integration).
+_NODE_ENV_NOISE_RE = re.compile(
+    r"Cannot find module '@rollup\/rollup-|Cannot find module .*native|"
+    r"ECONNREFUSED.*5432|P1001|connect ECONNREFUSED"
+)
+_NODE_ENV_HINT = (
+    "HINT: this looks like a TEST-ENVIRONMENT failure (missing platform binary / no "
+    "database in the unit-test container), not necessarily a code bug — keep unit tests "
+    "self-contained; DB-dependent tests belong in an integration suite run against a real "
+    "database."
+)
+
+
+def _node_env_hint(output: str) -> str:
+    """Pure: append the environment-not-code hint when the node output matches an
+    infra-noise pattern (missing native/rollup binary, no database). Returns the output
+    unchanged otherwise."""
+    if output and _NODE_ENV_NOISE_RE.search(output):
+        return f"{output}\n\n{_NODE_ENV_HINT}"
+    return output
+
+
 def _run_node_layer(project_dir: str, workdir: str, runner: str, timeout: int) -> tuple[bool, str]:
     """Run the JS test layer in a pinned node:alpine container."""
     cmd_map = {
@@ -830,7 +864,9 @@ def _run_node_layer(project_dir: str, workdir: str, runner: str, timeout: int) -
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return result.returncode == 0, _strip_ansi((result.stdout + result.stderr).strip())
+        ok = result.returncode == 0
+        out = _strip_ansi((result.stdout + result.stderr).strip())
+        return ok, out if ok else _node_env_hint(out)
     except subprocess.TimeoutExpired:
         return False, f"Timed out after {timeout}s."
     except FileNotFoundError:
@@ -998,6 +1034,75 @@ def _wait_healthy(project_dir: str, timeout: int = 120) -> tuple[bool, str]:
                                  for r in bad)
         time.sleep(2)
     return False, f"services not healthy after {timeout}s: {last or 'no containers found'}"
+
+
+# A service is treated as "the database" (last, hard-capped share of the log budget) when
+# its name matches this — everything else is an APP service whose error we actually need.
+_DB_SERVICE_RE = re.compile(r"(?i)(^|[-_])(db|database|postgres|postgresql|mysql|mariadb|"
+                            r"mongo|mongodb|redis)([-_]|$)")
+
+
+def _is_db_service(name: str) -> bool:
+    return bool(_DB_SERVICE_RE.search(name or ""))
+
+
+def _assemble_service_logs(per_service: dict, total_budget: int = 4000, db_cap: int = 15) -> str:
+    """Pure: assemble per-service compose logs so ONE noisy service (usually the database's
+    init chatter) can never evict the others. APP services print FIRST with the bulk of the
+    character budget; DB services print LAST, hard-capped to `db_cap` lines each. `per_service`
+    maps service name → its raw log text. A live integration failure was 100% db init noise —
+    the real app-container error was invisible for 2 diagnosis attempts."""
+    if not per_service:
+        return "(no service logs captured)"
+    app = {n: t for n, t in per_service.items() if not _is_db_service(n)}
+    db = {n: t for n, t in per_service.items() if _is_db_service(n)}
+    parts = []
+    # App services get the char budget, split evenly and tail-sliced (the error is at the tail).
+    share = max(400, total_budget // max(1, len(app))) if app else total_budget
+    for name in sorted(app):
+        parts.append(f"--- {name} (tail) ---\n{(app[name] or '').strip()[-share:]}")
+    for name in sorted(db):
+        tail = "\n".join((db[name] or "").strip().splitlines()[-db_cap:])
+        parts.append(f"--- {name} (last {db_cap} lines) ---\n{tail}")
+    return "\n\n".join(parts)
+
+
+# When health never converges but the containers ARE running, the usual cause is a
+# healthcheck probing `localhost` (IPv6 ::1) while the server binds IPv4 — the probe never
+# passes though the app is fine. This hint mirrors the "environment, not code" markers.
+_HEALTHCHECK_HINT = (
+    "HINT: containers run but healthchecks never pass — verify the healthcheck probes "
+    "127.0.0.1 (not localhost, which may resolve to IPv6 ::1 while the server binds IPv4) "
+    "and allow a start_period.")
+
+
+def _healthcheck_hint(health_msg: str) -> str:
+    """Pure: return the healthcheck hint when the (failed) health message shows services
+    that are RUNNING but with a non-healthy/starting probe state; else ''. The message
+    format is `service=state/health` pairs from `_wait_healthy`."""
+    msg = health_msg or ""
+    # `_wait_healthy` emits `service=state/health` pairs; a container that is up but whose
+    # probe hasn't passed shows `running/starting` (or `running/unhealthy`).
+    running = "running/" in msg
+    probe_failing = "starting" in msg or "unhealthy" in msg
+    return _HEALTHCHECK_HINT if (running and probe_failing) else ""
+
+
+def _capture_per_service_logs(project_dir: str) -> dict:
+    """Fetch compose logs one service at a time so the assembler can budget them
+    independently. Best-effort — a service with no logs maps to ''."""
+    services: list = []
+    rc, out = _compose(project_dir, "config", "--services")
+    if rc == 0 and out:
+        services = out.split()
+    logs: dict = {}
+    for svc in services:
+        _rc, txt = _compose(project_dir, "logs", "--no-color", "--tail", "200", svc)
+        logs[svc] = txt or ""
+    if not logs:   # config --services failed — fall back to one blob under a synthetic name
+        _rc, txt = _compose(project_dir, "logs", "--tail", "120")
+        logs["all"] = txt or ""
+    return logs
 
 
 def _http_ok(url: str, timeout: int = 5) -> bool:
@@ -1423,7 +1528,8 @@ def check_kit_wiring(project_dir: str, kit_files: list) -> tuple[bool, str]:
     kit_names = {Path(k).name for k in kit_files}
     kit_paths = {(root / k).resolve() for k in kit_files}
 
-    wired, dupes, sources_seen = False, [], 0
+    _kit_import_re = re.compile(r"""from\s+['"][^'"]*\bkit(?:/|['"])""")
+    wired, dupes, containers, sources_seen = False, [], [], 0
     for f in root.rglob("*"):
         if f.suffix not in (".tsx", ".ts", ".jsx", ".js"):
             continue
@@ -1432,18 +1538,25 @@ def check_kit_wiring(project_dir: str, kit_files: list) -> tuple[bool, str]:
         if f.resolve() in kit_paths or "kit" in f.parent.parts[-1:]:
             continue
         sources_seen += 1
-        if f.name in kit_names:
-            dupes.append(str(f.relative_to(root)))
-            continue
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            continue
+            text = ""
         # match BOTH `from '.../kit/X'` (deep import) AND `from '.../kit'` (barrel
         # import via the kit's index.ts — idiomatic and clean; a live engineer used it
         # and the deep-only regex wrongly failed it for 2 rounds).
-        if re.search(r"""from\s+['"][^'"]*\bkit(?:/|['"])""", text):
+        imports_kit = bool(_kit_import_re.search(text))
+        if imports_kit:
             wired = True
+        if f.name in kit_names:
+            # A same-named file that IMPORTS from the kit is a legitimate CONTAINER/wrapper
+            # (it composes the kit component, not a parallel reimplementation) — allow it.
+            # A live run stalled 3 rounds because a valid `components/AuthSheet.tsx` wrapping
+            # the kit's AuthSheet was flagged as a duplicate.
+            if imports_kit:
+                containers.append(str(f.relative_to(root)))
+            else:
+                dupes.append(str(f.relative_to(root)))
 
     findings = []
     if not wired and sources_seen:
@@ -1454,11 +1567,16 @@ def check_kit_wiring(project_dir: str, kit_files: list) -> tuple[bool, str]:
             "their UI yourself.")
     for d in dupes:
         findings.append(
-            f"PARALLEL COMPONENT: {d} duplicates a design-kit component's name. "
-            f"Delete it and wire the kit component instead — the kit owns those pixels.")
+            f"PARALLEL COMPONENT: {d} duplicates a design-kit component's name WITHOUT "
+            f"importing the kit — it reimplements a component the kit owns. Fix EITHER by: "
+            f"rename the file (e.g. <Name>Controller / <Name>Container) OR make it import "
+            f"and wrap the kit component — do not reimplement it.")
     if findings:
         return False, "\n".join(f"- {f}" for f in findings)
-    return True, "kit wired; no parallel components"
+    note = "kit wired; no parallel components"
+    if containers:
+        note += f" ({len(containers)} kit-named container(s) that import the kit — allowed)"
+    return True, note
 
 
 def check_testid_contract(project_dir: str) -> tuple[bool, str]:
@@ -1891,6 +2009,10 @@ def run_compose_integration(project_dir: str, require_compose: bool = True,
             return False, "\n\n".join(report)
 
         ok, msg = _wait_healthy(project_dir)
+        if not ok:
+            hint = _healthcheck_hint(msg)
+            if hint:
+                msg = f"{msg}\n{hint}"
         report.append(f"=== health — {'OK' if ok else 'FAILED'} ===\n{msg}")
         if ok:
             ok, msg = _smoke(project_dir)
@@ -1922,8 +2044,9 @@ def run_compose_integration(project_dir: str, require_compose: bool = True,
                           f"{screenshot_to if shot_ok else shot_msg}")
         passed = ok
         if not passed:
-            _rc, logs = _compose(project_dir, "logs", "--tail", "120")
-            report.append(f"=== service logs (tail) ===\n{logs[-3000:]}")
+            # Per-service so the db's init noise can't evict the app container's real error.
+            logs = _assemble_service_logs(_capture_per_service_logs(project_dir))
+            report.append(f"=== service logs (per service) ===\n{logs}")
         return passed, "\n\n".join(report)
     finally:
         _compose(project_dir, "down", "-v", "--remove-orphans", timeout=120)

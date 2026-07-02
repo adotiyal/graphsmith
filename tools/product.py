@@ -66,13 +66,34 @@ def _design_system_path():
     return PROFILE_ROOT / "design_system.md"
 
 
+def _design_system_pinned_path():
+    return PROFILE_ROOT / "design_system.pinned.md"
+
+
 def load_design_system() -> str:
-    p = _design_system_path()
-    text = p.read_text(encoding="utf-8").strip() if p.exists() else ""
-    return _cap(text, MAX_DESIGN_SYSTEM_CHARS, "design_system.md")
+    """The product's design-system memory, in TWO tiers:
+
+    - PINNED (`design_system.pinned.md`, optional, HUMAN-authored): standing mandates the
+      agent may NEVER rewrite (e.g. "consume the installed design system"). The design
+      agent's memory-compaction once dropped exactly these human rules.
+    - MANAGED (`design_system.md`): the agent-maintained memory (tokens, inventory, voice),
+      rewritten each UI feature via save_design_system().
+
+    Returns pinned FIRST, then managed (both capped-with-warning). Absent pinned = exact
+    prior behavior (managed alone)."""
+    pinned = _design_system_pinned_path()
+    pinned_text = pinned.read_text(encoding="utf-8").strip() if pinned.exists() else ""
+    managed = _design_system_path()
+    managed_text = managed.read_text(encoding="utf-8").strip() if managed.exists() else ""
+    if pinned_text and managed_text:
+        combined = pinned_text + "\n\n" + managed_text
+    else:
+        combined = pinned_text or managed_text
+    return _cap(combined, MAX_DESIGN_SYSTEM_CHARS, "design_system.md")
 
 
 def save_design_system(text: str) -> str:
+    """Write ONLY the managed tier — the pinned tier is human-owned and never touched here."""
     PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
     _design_system_path().write_text((text or "").strip(), encoding="utf-8")
     return str(_design_system_path())
@@ -108,3 +129,23 @@ def save_stack(text: str) -> str:
     PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
     _stack_path().write_text((text or "").strip(), encoding="utf-8")
     return str(_stack_path())
+
+
+# --- Deploy target (persisted across features, like the stack) ---
+# The CEO/CTO's deploy-target decision (e.g. "local compose only, dry-run manifests" vs a
+# cloud target). DevOps kept re-asking it every run across products (I5, 4th+ recurrence);
+# once persisted, DevOps reuses it and never re-escalates. Free-text (stack-agnostic).
+
+def _deploy_target_path():
+    return PROFILE_ROOT / "deploy_target.md"
+
+
+def load_deploy_target() -> str:
+    p = _deploy_target_path()
+    return p.read_text(encoding="utf-8").strip() if p.exists() else ""
+
+
+def save_deploy_target(text: str) -> str:
+    PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+    _deploy_target_path().write_text((text or "").strip(), encoding="utf-8")
+    return str(_deploy_target_path())

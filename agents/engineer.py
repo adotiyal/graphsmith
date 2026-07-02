@@ -366,7 +366,15 @@ def _fail(state, code_path, msg, qa_log, rounds, written=None) -> dict:
     }
 
 
-def _read_kit(state: dict, manifest_cap: int = 6000) -> str:
+# The components manifest is a CONTRACT (props + REQUIRED MICROCOPY the app must show),
+# like an API spec — truncating it starved the engineer of the wiring contract and it built
+# a parallel component. Read it effectively UNTRUNCATED (24000-char safety ceiling only).
+MANIFEST_CAP = 24000
+DESIGN_SPEC_CAP = 16000
+DESIGN_MOCKUP_CAP = 16000
+
+
+def _read_kit(state: dict, manifest_cap: int = MANIFEST_CAP) -> str:
     """The design-owned component kit contract: wire these, never rewrite them."""
     files = state.get("design_component_files") or []
     if not files:
@@ -390,7 +398,7 @@ Kit rules (hard):
 - You own: pages/containers, hooks, state, API calls, routing, non-kit chrome."""
 
 
-def _read_design(state: dict, spec_cap: int = 6000, mockup_cap: int = 8000) -> str:
+def _read_design(state: dict, spec_cap: int = DESIGN_SPEC_CAP, mockup_cap: int = DESIGN_MOCKUP_CAP) -> str:
     """The design spec + HTML mockup, for visual fidelity. Empty when absent
     (quick lane, backend-only) — costs nothing in those cases."""
     parts = []

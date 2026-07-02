@@ -1,0 +1,2 @@
+- Evidence rule: a root-cause claim must quote the implicated file and line from the actual code; if you cannot see the file, say so and ask — never infer an implementation defect from test output alone.
+- Classify a failure as ENVIRONMENT vs CODE first (missing platform binaries, module-resolution errors, no database in the container, port conflicts = environment); an environment failure must not produce a code-defect verdict.

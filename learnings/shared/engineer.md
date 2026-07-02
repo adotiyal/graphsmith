@@ -1,0 +1,4 @@
+- Same-round sync: if code references a new persisted field, the schema/migration/client change lands in the same round — the feature must compile end to end before hand-off, never reference storage that doesn't exist yet.
+- No orphans: every new component is reachable from a page/route and every interactive element (button/link) has a wired action or navigation; a rendered dead control or a component imported nowhere is a defect.
+- Shell integration: when the app has an existing global shell/nav, new pages mount it and register their entry points — never emit chrome-less pages into an app that has chrome.
+- Respect framework runtime boundaries (server/client or equivalent): a library requiring client-side context must never load in server scope; isolate it behind an explicit client-boundary module when unsure. Keep one storage unit per quantity, converting to display units only at the display boundary via a single shared helper.

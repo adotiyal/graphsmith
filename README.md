@@ -209,6 +209,33 @@ The pipeline is not a one-pass waterfall — it verifies its own work:
   down. It's the headline KPI on the flight recorder and the number to drive toward 1.0 — the
   single best measure of whether the platform is getting more autonomous over time.
 
+### Doesn't fight itself (production hardening)
+
+A batch of fixes for failure modes where the pipeline burned its own retry budget on
+self-inflicted or environment noise rather than real defects:
+
+- **Convention over invocation (node tests):** the per-layer test runner honors the
+  project's OWN `test` script (`npm test --silent`) when one exists, only falling back to a
+  generic `npx vitest run`/`npx jest --ci` when it doesn't — so a DB-dependent integration
+  test never runs in the DB-less unit container. On an infra-noise failure (missing platform
+  binary, no database, `ECONNREFUSED`) the output gets a HINT marking it a test-ENVIRONMENT
+  failure, not a code bug.
+- **Kit-wiring container allowance:** a non-kit file that shares a name with a kit component
+  but IMPORTS the kit (a legitimate wrapper/container) no longer stalemates the engineer; a
+  genuine parallel reimplementation still fails, now with actionable rename/wrap guidance.
+- **The wiring contract is never truncated:** the engineer (and QA) read the design spec and
+  mockup at generous caps and the components manifest **untruncated** — it's a contract, like
+  an API spec, and starving the engineer of it was the root cause of parallel/unwired UI.
+- **Readable integration logs:** compose-integration captures logs PER SERVICE with the app
+  services first and the database last and hard-capped, so DB init noise can't drown the
+  actual app error; a health-wait timeout on running-but-unhealthy containers adds a
+  healthcheck hint.
+- **Human-pinned design rules survive:** a `product/design_system.pinned.md` tier the agent
+  can never rewrite is always prepended to the managed design-system memory.
+- **Standing infra decisions persist:** the CEO/CTO deploy-target decision is saved
+  (`product/deploy_target.md`) and reused, so DevOps stops re-asking it every run — matched
+  narrowly so an unrelated question is never mistaken for it.
+
 ## Pre-flight checklist
 
 | Check | Command |

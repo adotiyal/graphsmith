@@ -26,15 +26,44 @@ know the deploy target, GCP project/region, custom domain, or secret names. Like
 every other agent it can escalate to the CEO via run_with_qa rather than guessing.
 """
 
+import re
+
 from graph.state import ProjectState
 from tools.file_io import load_prompt, load_skill, read_artifact, write_artifact
 from tools.qa_utils import run_with_qa, work_call, format_qa_context
+from tools import product
 
 CONSULT = ["ceo"]
 
+# A qa_log CEO answer whose question is about where/how to deploy — used to persist the
+# standing decision so DevOps stops re-asking it every run (I5, 4th+ recurrence). Must require
+# an explicit deploy/hosting term: a bare "target"/"cloud"/"infra" over-matches unrelated
+# devops questions (e.g. a healthcheck latency "target", a "cloud" storage bucket), and the
+# first such answer would be persisted as the standing deploy target and never re-asked.
+_DEPLOY_Q_RE = re.compile(
+    r"(?i)(\bdeploy(ment)?\b|\bhosting\b|\bhost(ed)?\b"
+    r"|\bdeploy\s+target\b|\bdeploy\s+to\b)")
+
 
 def run(state: ProjectState) -> dict:
+    _persist_deploy_answer(state)
     return run_with_qa(state, "devops", _do_work, consultable_agents=CONSULT)
+
+
+def _persist_deploy_answer(state: dict) -> None:
+    """If the CEO answered a devops deploy-target question this run, persist it as the
+    standing decision (unless one is already on file — never clobber the human's file
+    with a per-run aside). Best-effort; never raises."""
+    if product.load_deploy_target():
+        return
+    for e in reversed(state.get("qa_log") or []):
+        if (e.get("from") == "devops" and e.get("to") == "ceo"
+                and e.get("answer") and _DEPLOY_Q_RE.search(e.get("question", ""))):
+            try:
+                product.save_deploy_target(e["answer"].strip())
+            except OSError:
+                pass
+            return
 
 
 def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True) -> dict:
@@ -53,12 +82,20 @@ def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True
 
     deploy_mode = "PRODUCTION DEPLOY" if tests_ok else "DRY RUN (tests did not pass)"
 
+    # Persist-and-reuse the standing deploy-target decision (I5): when it's on file, inject
+    # it and forbid re-asking; DevOps kept re-escalating a settled deploy target every run.
+    deploy_target = product.load_deploy_target()
+    deploy_block = (
+        f"\nSTANDING DEPLOY TARGET (CEO/CTO decision — already settled; DO NOT ask about the "
+        f"deploy target, honor this):\n{deploy_target}\n"
+        if deploy_target else "")
+
     user_msg = f"""
 Project: {project_id}
 Deploy mode: {deploy_mode}
 
 CEO/CTO-confirmed stack: {stack}
-
+{deploy_block}
 Tech spec summary (for additional detail):
 {tech_spec}
 

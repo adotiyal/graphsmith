@@ -1,0 +1,2 @@
+- Reproduce the authoritative data contract (entity roster, field shapes) verbatim in the tech spec so every downstream agent inherits the same locked model — never restate it loosely and let engineer/test-author diverge.
+- When the stack has framework runtime-boundary rules (e.g. server vs client modules), state them explicitly in the spec so the engineer respects them by construction rather than discovering the boundary at boot.

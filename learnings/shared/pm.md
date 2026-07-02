@@ -1,0 +1,2 @@
+- For any UI-surfaced feature, the acceptance criteria MUST include journey criteria — how the user reaches each new screen from the existing navigation (entry) and where each primary CTA leads (exit); a screen no navigation reaches or a CTA with no destination fails acceptance even when every isolated screen has a test.
+- State the success metric as a signal the pipeline or an operator can actually measure (a countable outcome, latency bound, or completion rate) — never an unmeasurable aspiration or a placeholder; escalate if no measurable signal exists.

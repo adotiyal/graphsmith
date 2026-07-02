@@ -62,6 +62,16 @@ keep final images lean. Pinned bases: `python:3.12-slim`, `node:22-alpine`, `pos
 4. How to check deploy status
 5. Rollback command
 
+## Standing decisions and healthchecks
+- **Reuse the persisted deploy target; ask only if absent.** If the CEO/CTO's deploy-target
+  decision is already recorded (shown in your prompt as the standing decision), follow it and
+  do NOT re-escalate the question — re-asking a settled infra decision every run is noise.
+  Escalate for a target only when none is persisted.
+- **In-container HTTP healthchecks probe `127.0.0.1`, never `localhost`** — `localhost` may
+  resolve to IPv6 `::1` while the server binds IPv4, so the probe never passes and the
+  container is marked unhealthy though it runs. Declare a `start_period` so slow-booting
+  services aren't killed before they're ready.
+
 ## What DevOps does NOT do
 - Does not provision databases (one-time manual step, documented in README)
 - Does not manage DNS (out of scope v1)
