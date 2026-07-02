@@ -92,8 +92,14 @@ def load_design_system() -> str:
     if managed_text:
         managed_text = _cap(managed_text, MAX_DESIGN_SYSTEM_CHARS, "design_system.md")
     if pinned_text and managed_text:
-        return pinned_text + "\n\n" + managed_text
+        return pinned_text + "\n\n" + PINNED_END_SENTINEL + "\n\n" + managed_text
     return pinned_text or managed_text
+
+
+# Separates the tiers in load_design_system()'s output so save_design_system() can strip a
+# re-emitted pinned block RELIABLY — agents echo the loaded concatenation back on save, often
+# REFORMATTED (re-wrapped lines), which defeats exact-substring stripping (observed live).
+PINNED_END_SENTINEL = "<!-- END PINNED — agent-managed memory begins below this line -->"
 
 
 def save_design_system(text: str) -> str:
@@ -101,15 +107,18 @@ def save_design_system(text: str) -> str:
 
     Agents see load_design_system()'s pinned+managed CONCATENATION and re-emit it wholesale,
     so a save would silently duplicate the pinned block INTO the managed file (observed live:
-    the next load then doubled the pinned rules and blew the cap). Strip any embedded copy of
-    the current pinned text before writing."""
+    the next load then doubled the pinned rules and blew the cap). Strip everything up to the
+    sentinel when present (robust to a reformatted echo), else strip an exact embedded copy."""
     PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
     cleaned = (text or "").strip()
-    pinned = _design_system_pinned_path()
-    if pinned.exists():
-        pinned_text = pinned.read_text(encoding="utf-8").strip()
-        if pinned_text and pinned_text in cleaned:
-            cleaned = cleaned.replace(pinned_text, "", 1).strip()
+    if PINNED_END_SENTINEL in cleaned:
+        cleaned = cleaned.split(PINNED_END_SENTINEL)[-1].strip()
+    else:
+        pinned = _design_system_pinned_path()
+        if pinned.exists():
+            pinned_text = pinned.read_text(encoding="utf-8").strip()
+            if pinned_text and pinned_text in cleaned:
+                cleaned = cleaned.replace(pinned_text, "", 1).strip()
     _design_system_path().write_text(cleaned, encoding="utf-8")
     return str(_design_system_path())
 

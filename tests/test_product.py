@@ -69,7 +69,6 @@ def test_save_strips_reemitted_pinned_block(product_root):
     product_root.mkdir(parents=True, exist_ok=True)
     (product_root / "design_system.pinned.md").write_text(
         "## STANDING RULE\nConsume the installed design system.")
-    echoed = product.load_design_system_echo() if hasattr(product, "load_design_system_echo") else None
     product.save_design_system(
         "## STANDING RULE\nConsume the installed design system.\n\n## Tokens\nspacing: 8px")
     managed = (product_root / "design_system.md").read_text()
@@ -77,6 +76,28 @@ def test_save_strips_reemitted_pinned_block(product_root):
     assert "spacing: 8px" in managed               # agent content kept
     loaded = product.load_design_system()
     assert loaded.count("STANDING RULE") == 1      # pinned appears exactly once
+
+
+def test_save_strips_reformatted_pinned_echo_via_sentinel(product_root):
+    # A live agent echoed the pinned block REFORMATTED (re-wrapped lines), defeating
+    # exact-substring stripping. The load output carries a sentinel line between the tiers;
+    # save keeps only what follows it — robust to any rewrapping of the pinned prose.
+    product_root.mkdir(parents=True, exist_ok=True)
+    (product_root / "design_system.pinned.md").write_text(
+        "## STANDING RULE\nConsume the installed\ndesign system.")
+    loaded = product.load_design_system()  # pinned only (no managed yet) — no sentinel
+    assert product.PINNED_END_SENTINEL not in loaded
+    product.save_design_system("## Tokens\nspacing: 8px")
+    loaded = product.load_design_system()
+    assert product.PINNED_END_SENTINEL in loaded   # both tiers -> sentinel between them
+    # agent echoes the WHOLE loaded doc back, with the pinned prose REWRAPPED
+    echo = loaded.replace("Consume the installed\ndesign system.",
+                          "Consume the installed design system.") + "\n- new addition"
+    product.save_design_system(echo)
+    managed = (product_root / "design_system.md").read_text()
+    assert "STANDING RULE" not in managed          # reformatted pinned still stripped
+    assert "new addition" in managed and "spacing: 8px" in managed
+    assert product.load_design_system().count("STANDING RULE") == 1
 
 
 def test_pinned_and_managed_capped_separately_no_tail_eviction(product_root):
