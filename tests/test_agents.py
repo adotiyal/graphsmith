@@ -97,6 +97,15 @@ def test_pm_escalates_when_blocked(llm, ws):
     assert out.get("approval_pending") is None
 
 
+def test_pm_system_prompt_loads_the_pm_skill(llm, ws):
+    # C11 lives in skills/pm.md — it must actually reach the model (the skill was a dead file).
+    from agents import pm
+    paths = full_seed(ws)
+    llm.default = "## Feature\nx\n## Acceptance Criteria\n1. ..."
+    pm.run(base_state(prd_path=paths["brief"]))
+    assert "Journey ACs" in llm.system_texts()
+
+
 def test_pm_uses_product_profile(llm, ws):
     from agents import pm
     paths = full_seed(ws)
@@ -724,6 +733,15 @@ def test_qa_pass_authors_playwright_specs_for_ui(llm, ws):
     assert "selectors" in llm.calls[1]["user"]
 
 
+def test_qa_system_prompt_loads_the_qa_skill(llm, ws):
+    # C9 lives in skills/qa.md — it must actually reach the model (the skill was a dead file).
+    from agents import qa
+    paths = full_seed(ws)
+    llm.default = "QA sign-off: GO"
+    qa.run(base_state(tests_passed=True, prd_path=paths["prd"]))
+    assert "Evidence rule" in llm.system_texts()
+
+
 def test_qa_pass_skips_e2e_for_backend_only(llm, ws):
     from agents import qa
     paths = full_seed(ws)                        # no frontend layer
@@ -1275,3 +1293,60 @@ def test_devops_escalates_when_blocked(llm, ws):
     llm.default = NEEDS_CEO
     out = devops.run(base_state(design_path=paths["tech"], tests_passed=True))
     assert out["ceo_qa_pending"] and out["ceo_qa_from"] == "devops"  # no agent is blocked
+
+
+# ── C7: deploy-target persistence (I5) ───────────────────────────────────────────────────
+def test_devops_injects_persisted_deploy_target_and_forbids_asking(llm, ws):
+    from agents import devops
+    from tools import product
+    paths = full_seed(ws)
+    product.save_deploy_target("local compose only, dry-run manifests")
+    llm.default = "===FILE: Dockerfile===\nFROM python:3.11\n===END==="
+    devops.run(base_state(design_path=paths["tech"], tests_passed=True))
+    prompt = llm.user_texts()
+    assert "STANDING DEPLOY TARGET" in prompt
+    assert "local compose only" in prompt
+    assert "DO NOT ask about the deploy target" in prompt
+
+
+def test_devops_persists_a_ceo_deploy_answer(llm, ws):
+    from agents import devops
+    from tools import product
+    paths = full_seed(ws)
+    assert product.load_deploy_target() == ""
+    llm.default = "===FILE: Dockerfile===\nFROM python:3.11\n===END==="
+    # simulate the resume where the CEO answered the deploy-target question
+    state = base_state(design_path=paths["tech"], tests_passed=True)
+    state["qa_log"] = [{"from": "devops", "to": "ceo",
+                        "question": "What is the deploy target / hosting?",
+                        "answer": "Cloud Run for the api, dry-run only for now."}]
+    devops.run(state)
+    assert "Cloud Run" in product.load_deploy_target()
+
+
+def test_devops_absent_target_is_current_behavior(llm, ws):
+    from agents import devops
+    from tools import product
+    paths = full_seed(ws)
+    llm.default = "===FILE: Dockerfile===\nFROM python:3.11\n===END==="
+    devops.run(base_state(design_path=paths["tech"], tests_passed=True))
+    assert "STANDING DEPLOY TARGET" not in llm.user_texts()
+    assert product.load_deploy_target() == ""
+
+
+def test_devops_does_not_persist_non_deploy_ceo_answer(llm, ws):
+    # A CEO answer to an unrelated devops question that merely mentions "target"/"cloud"/"infra"
+    # (a latency target, a cloud storage bucket) must NOT be captured as the standing deploy
+    # target — the trigger requires an explicit deploy/hosting term.
+    from agents import devops
+    from tools import product
+    paths = full_seed(ws)
+    assert product.load_deploy_target() == ""
+    llm.default = "===FILE: Dockerfile===\nFROM python:3.11\n===END==="
+    state = base_state(design_path=paths["tech"], tests_passed=True)
+    state["qa_log"] = [{"from": "devops", "to": "ceo",
+                        "question": "What latency target should the healthcheck allow, "
+                                    "and which cloud storage bucket holds build artifacts?",
+                        "answer": "200ms, and the artifacts bucket in us-central1."}]
+    devops.run(state)
+    assert product.load_deploy_target() == ""

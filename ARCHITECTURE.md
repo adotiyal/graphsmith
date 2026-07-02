@@ -472,6 +472,44 @@ code-verifiable rules. The generation agents (architect, test author, engineer, 
 
 **New state fields:** `security_warnings`, `code_quality`.
 
+### 12c. Anti-drift / self-fighting hardening (2026-07)
+
+A batch of surgical fixes for failure modes where the pipeline burned its bounded retry
+budget on self-inflicted or environment noise rather than real defects — each augments an
+existing mechanism (no new blocking gate) and is pinned by a regression test:
+
+- **Convention over invocation (node test runner)** — `registry._run_node_layer` runs the
+  layer's OWN `test` script (`npm test --silent`) when `package.json` defines a non-blank one,
+  falling back to `npx vitest run` / `npx jest --ci` only when it doesn't. A DB-dependent
+  integration test then never runs inside the DB-less unit container. `_node_env_hint`
+  appends a test-ENVIRONMENT hint (not a code-bug verdict) when the output matches infra-noise
+  patterns (missing platform binary / `ECONNREFUSED`/`P1001` / no database).
+- **Kit-wiring container allowance** — `registry.check_kit_wiring` no longer flags a non-kit
+  file that shares a kit component's basename WHEN that file imports from the kit (a
+  legitimate wrapper/container); a true parallel reimplementation still fails, now with
+  actionable rename/wrap guidance.
+- **Design-input caps** (`agents/engineer.py`, `agents/qa.py`) — the design spec and mockup
+  read at generous caps and the components manifest reads **untruncated** (≤24000 safety
+  bound): the manifest is the wiring CONTRACT, and truncating it caused parallel/unwired UI.
+  The loud file_io cap-warning is preserved.
+- **Per-service integration logs + healthcheck hint** (`registry.run_compose_integration`) —
+  `_assemble_service_logs` captures logs per service, app services first, the database last
+  and hard-capped (15 lines), so DB init noise can't evict the app error. On a
+  running-but-unhealthy health-wait timeout, `_healthcheck_hint` appends a generic hint to
+  probe `127.0.0.1` (not `localhost`, which may resolve to IPv6 `::1`) with a `start_period`.
+- **Pinned design-system tier** (`tools/product.py`) — `load_design_system()` returns
+  `product/design_system.pinned.md` (optional, human-authored, agent-immutable) concatenated
+  BEFORE the managed `design_system.md`; `save_design_system()` writes only the managed file.
+  Human standing mandates survive the agent's memory-compaction rewrites.
+- **Deploy-target persistence** (`tools/product.py` + `agents/devops.py`) — the CEO/CTO
+  deploy-target decision is saved (`product/deploy_target.md`) and reused, injected as the
+  standing decision with a do-not-ask directive; the persist trigger requires an explicit
+  deploy/hosting term so an unrelated devops question is never captured as the target.
+- **Live skill mandates** — `agents/pm.py` and `agents/qa.py` now load `skills/pm.md` /
+  `skills/qa.md` into the system prompt (they previously never did), so the PM journey-AC
+  mandate and the QA evidence rule / environment-vs-code classification actually reach the
+  model.
+
 ### 13. Design as a real designer (consumer-app design)
 
 The design agent was upgraded from "list screens + components" to how strong designers

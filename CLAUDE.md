@@ -118,6 +118,87 @@ the last `</html>`, ignoring fences/preamble), best-effort on truncation. Pinned
 engineer skill's newest mandates never reached it. Cap now 16000 and
 `test_all_skills_load_untruncated` fails the suite if any `skills/*.md` crosses it.
 
+**Gotcha (FIXED, node test runner ran the whole vitest suite in a DB-less container):**
+`registry._run_node_layer` unconditionally ran `npx vitest run`, which executed DB-dependent
+integration tests inside the throwaway node unit container — every round failed on connection
+errors and the engineer⇄QA loop burned all attempts on infra noise. Now it honors the
+project's OWN test convention first: a non-blank `scripts.test` in the layer's `package.json`
+→ `npm test --silent` (the project scopes its own unit run); only when there is no test script
+does it fall back to `npx vitest run`/`npx jest --ci`. On failure, `_node_env_hint` appends a
+test-ENVIRONMENT hint (mirroring the port-conflict "environment, not code" marker) when the
+output matches infra-noise patterns (missing platform binary / no-database / `ECONNREFUSED` /
+`P1001`). Pinned by `tests/test_prod_hardening_2026_07.py`. **Rule: convention over invocation
+— run the project's own test script; keep unit tests self-contained and DB-dependent tests in
+an integration suite.**
+
+**Gotcha (FIXED, kit-wiring parallel-component false stalemate):** `registry.check_kit_wiring`
+flagged ANY non-kit file whose basename matched a kit component — but a legitimate CONTAINER
+(e.g. `components/AuthSheet.tsx`) that IMPORTS the kit's `AuthSheet` is a wrapper, not a
+parallel reimplementation, and the engineer (blocked from kit files) couldn't fix it → 3 wasted
+rounds. Now a same-file kit import EXEMPTS the collision (noted in the OK message); a genuine
+non-importing collision still fails, now with actionable "rename to `<Name>Container` OR import
+and wrap the kit component" guidance. Pinned by `tests/test_prod_hardening_2026_07.py`. **Rule:
+a name-collision that WRAPS the kit is allowed; only a parallel reimplementation fails.**
+
+**Gotcha (FIXED, wiring contract truncated):** the components manifest is the engineer's wiring
+CONTRACT (like an API spec) — but `agents/engineer.py`/`agents/qa.py` read it at a 4000–6000
+char cap, so the engineer never saw the full contract and built a parallel/unwired component.
+Now: design spec ≥16000, mockup ≥16000, manifest read **untruncated** (24000 safety bound), the
+loud file_io cap-warning preserved. Pinned by `tests/test_prod_hardening_2026_07.py`. **Rule: a
+CONTRACT artifact (manifest/API spec) is never head-sliced below its floor — truncating a
+contract silently drops the very wiring the downstream agent must honor.**
+
+**Gotcha (FIXED, integration logs drowned by the DB container):** `run_compose_integration`'s
+"service logs (tail)" was 100% database-init noise; the actual app-container error was invisible
+and the engineer/QA diagnosed blind for 2 attempts. Now `_assemble_service_logs` captures PER
+SERVICE — app services first with the larger budget, db LAST and hard-capped (15 lines) — so one
+service's noise can't evict the others; a single-blob fallback preserves the old behavior when
+per-service capture is unavailable. And on a health-wait timeout with containers running but
+probes failing, `_healthcheck_hint` appends: probe `127.0.0.1`, not `localhost` (which may
+resolve to IPv6 `::1` while the server binds IPv4), and allow a `start_period`. Pinned by
+`tests/test_prod_hardening_2026_07.py`. **Rule: never let one service's log noise evict the
+others; app error first, DB last and capped.**
+
+**Gotcha (FIXED, agent evicted human-pinned design rules):** the design agent's design-system
+memory extraction compacted `product/design_system.md` and dropped the human-authored standing
+mandates. Now there is a PINNED tier — `product/design_system.pinned.md` (optional,
+human-authored) — that agents can NEVER rewrite: `product.load_design_system()` returns
+`pinned + "\n\n" + managed` (pinned FIRST, so it survives a cap hit), and `save_design_system()`
+writes ONLY the managed file. Absent pinned = byte-identical prior behavior. Pinned by
+`tests/test_product.py`. **Rule: human standing decisions live in an agent-immutable pinned tier;
+agent-managed memory is layered on top, never over it.**
+
+**Gotcha (FIXED, C5 design ignores an existing kit convention):** the design agent's
+kit-emission prompt hardcoded "SELF-CONTAINED: import ONLY react … do NOT import any component
+library" — against a repo whose kit wrapped an installed library it hand-rolled ~1800 lines of
+utility-class UI that rendered unstyled. Now `design._kit_convention_block` reads 2–3
+representative existing kit files and, IF they compose an installed library, injects a
+FOLLOW-THE-EXISTING-CONVENTION instruction that OVERRIDES the self-contained mandate for that
+run; the self-contained rule stays the GREENFIELD default (empty block on an empty/self-contained
+kit). First-party path aliases (`@/…`, `~/…`) are excluded from library detection — an alias is
+not a library. Pinned by `tests/test_design_kit_convention.py`. **Rule: follow the existing kit's
+implementation convention over regenerating from a hardcoded mandate; self-contained is the
+greenfield default only.**
+
+**Gotcha (FIXED, C7 devops re-asks the deploy target every run — 4th+ recurrence):** the
+CEO/CTO deploy-target decision is now persisted like the stack — `product/deploy_target.md`
+(`load/save_deploy_target`). DevOps injects a persisted target as the standing decision with a
+"DO NOT ask about the deploy target" directive and persists a fresh CEO answer on its ceo_qa
+path. The persist trigger (`devops._DEPLOY_Q_RE`) requires an EXPLICIT deploy/hosting term — a
+bare `target`/`cloud`/`infra` over-matched unrelated devops questions (a healthcheck latency
+"target", a "cloud" storage bucket) and would sticky-persist the wrong answer forever. Pinned by
+`tests/test_agents.py` (inject/persist + negative-persist). **Rule: persist-and-reuse standing
+infra decisions, but match the persist trigger narrowly so an unrelated answer is never
+mistaken for the standing decision.**
+
+**Gotcha (FIXED, skills/pm.md + skills/qa.md were dead files):** every skilled agent builds its
+system prompt as `augment_system(load_prompt(a) + "\n\n" + load_skill(a), a)` — but `agents/pm.py`
+and the three system-prompt sites in `agents/qa.py` called only `load_prompt`, so `skills/pm.md`
+(journey ACs for UI features) and `skills/qa.md` (evidence rule, environment-vs-code
+classification) never reached the model. Now both load their skill; pinned by system-prompt
+sentinel tests in `tests/test_agents.py`. **Rule: a skill mandate only exists at runtime if the
+agent's system prompt loads it — every skilled agent must `load_skill`.**
+
 **Generalization note (recurring learnings → STACK-AGNOSTIC skill principles, 2026-06-22):**
 when a recurring bug class is committed into a skill (so it survives the gitignored/evictable
 `learnings/` store and ships with the repo), state it as a TRANSFERABLE PRINCIPLE — usable for
@@ -442,7 +523,7 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2); **two tiers**: gitignored LOCAL `learnings/<agent>.md` + COMMITTED `learnings/shared/<agent>.md` (`load_shared_learnings`/`promote_learning` + `python -m tools.learnings list`/`promote` CLI = human-gated graduation of GENERIC lessons into the harness) |
 | `tools/contract.py` | Feature Contract spine — parse PRD AC ids (`parse_acs`), extract `# covers:` AC refs, deterministic `coverage` (every AC tested, every UI AC has an e2e) |
 | `tools/product.py` (+`registry`) | Interface Contract — persisted cumulative kit testids + microcopy (`load/save_interface_contract`); `registry.extract_kit_interface` + `check_interface_additive` enforce ADDITIVE-ONLY across phases (no dropped guarantee). `registry.resolve_kit_testids` resolves STATE-SUFFIX kit components (`${base}-add-friend`) so the REAL rendered ids are surfaced and a base-only e2e assertion is caught; `kit_state_suffixes` feeds the variants to QA authoring |
-| `tools/product.py` | Persistent product profile (category/users/brand/goals) + persisted stack; `_cap` makes over-cap reads WARN (no silent head-slice) |
+| `tools/product.py` | Persistent product profile (category/users/brand/goals) + persisted stack; `_cap` makes over-cap reads WARN (no silent head-slice). **Pinned design-system tier** (`design_system.pinned.md` — agent-immutable, prepended to managed) + **persisted deploy target** (`load/save_deploy_target` → `deploy_target.md`, reused by devops) |
 | `tools/project_ctx.py` | Single persistent project (`workspace/project`) + feature ledger (continuity) |
 | `tools/trace.py` | Per-run trace (nodes + LLM calls/tokens/latency) → `traces/<id>.jsonl` |
 | `evals/overseer.py` | Runtime overseer — deterministic invariants/loops/budget on the finished run |

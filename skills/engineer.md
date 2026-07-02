@@ -59,6 +59,30 @@ Your output is brought up LIVE with `docker compose up --build` and verified. Sh
 - **When you receive an error log:** real failures are at the TAIL — pytest deprecation
   warnings appear at the top and are noise. Diagnose and fix the tail, not the top.
 
+## Ship a feature that BUILDS and is fully WIRED (non-negotiable)
+Passing tests is not enough — the feature must compile end to end and every surface you add
+must be reachable and functional.
+- **SAME-ROUND SYNC:** if code references a new persisted field, the schema/migration/client
+  change lands in the SAME round. Never reference storage that doesn't exist yet — the feature
+  must typecheck/compile before hand-off *(Default stack: a route reading a column absent from
+  the model + migration + generated client doesn't build)*.
+- **NO ORPHANS:** every new component is reachable from a page/route, and every interactive
+  element (button/link) has a wired action or navigation. A rendered control that does nothing,
+  or a component imported nowhere, is a defect — not a stub to leave for later.
+- **SHELL INTEGRATION:** when the app already has a global shell/nav, new pages mount it and
+  register their entry points. Never emit chrome-less pages into an app that has chrome, or a
+  screen that no navigation reaches.
+- **UNIT-BEARING VALUES:** one storage unit per quantity (e.g. money in minor units) with
+  conversion ONLY at the display boundary via a single shared helper — never pass a storage
+  unit straight into a display formatter that expects display units.
+- **FRAMEWORK RUNTIME BOUNDARIES:** respect the framework's server/client (or equivalent)
+  module boundaries — a library that requires client-side context must never load in server
+  scope; when unsure, isolate it behind an explicit client-boundary module *(Default stack: a
+  React server component importing a `"use client"` library's top-level `createContext` crashes
+  SSR)*.
+- **HEALTHCHECKS:** in-container HTTP healthchecks probe `127.0.0.1`, never `localhost` (which
+  may resolve to IPv6 `::1` while the server binds IPv4), and declare a `start_period`.
+
 ## Backend Patterns (FastAPI)
 
 ### Project structure (always follow this)

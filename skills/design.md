@@ -27,6 +27,10 @@ Only ask what genuinely changes the design, and only what isn't already answered
 
 ### 2. Flows before screens — including the unhappy paths
 - Map the journey end-to-end: entry point → steps → success.
+- **Shell & navigation integration is part of every UI spec.** For each new screen, specify
+  HOW the user reaches it from the app's existing shell/navigation and where each primary CTA
+  leads (entry + exit). Never spec a chrome-less screen for an app that already has a global
+  shell — a screen no navigation reaches, or a CTA with no destination, isn't a real flow.
 - Design the **first-run / empty / onboarding** state explicitly — for consumer apps this
   is where users are won or lost.
 - Design the unhappy paths: error, empty, loading, partial, offline, permission-denied.
@@ -128,6 +132,17 @@ You are building ONE product, not a series of screens. The persisted design syst
   section; reference it thereafter.
 - **One voice:** microcopy tone (casing, person, encouragement level) is a token too —
   define it once, apply everywhere.
+- **Follow the EXISTING kit's implementation convention — never regenerate from scratch.**
+  When the kit dir already has components, new/extended kit components MUST match how the
+  existing ones are built. If the existing kit composes an INSTALLED component library (thin
+  wrappers/composites over it), yours do too — do NOT hand-roll a parallel implementation in a
+  framework the project didn't install (it renders unstyled/broken). The self-contained
+  "import only the framework primitives" rule is the GREENFIELD default — it applies only when
+  there is no existing kit or no library convention to follow.
+- **Never drop a standing, human-pinned design-system rule when extending the memory doc.**
+  When you carry the Design System section forward, PRESERVE the standing mandates (e.g.
+  "consume the installed design system") verbatim and ADD to them — extending the design system
+  is additive; compacting it must not evict a rule a human pinned.
 
 ## SEO & AI-search (AEO) — consumer apps must be discoverable
 Crawlers and AI answer engines read the SERVER-RENDERED HTML. Design for it:

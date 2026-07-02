@@ -32,6 +32,22 @@ Write tests for the layer(s) the feature touches, using the matching tool:
   what proves migration/boot correctness. *(Default stack: unit tests run on sqlite, which
   hides Postgres-only issues like enum-type collisions, JSON/array columns, server defaults.)*
 
+## Honor the standing contracts (never author against them)
+The repo may already carry standing/contract tests from earlier phases (e.g. a test that
+fixes the exact set of data-model entities). These are law.
+- **Read the existing standing/contract tests before authoring, and NEVER write a test that
+  contradicts one.** If the current spec genuinely conflicts with a locked contract, do not
+  resolve it yourself by authoring a contradictory oracle — escalate to the CEO/CTO. Two
+  unmodifiable oracles that disagree corner the engineer with no legal way to pass.
+- **When the spec fixes a data model/roster, assert the SPEC'S modeling — never require new
+  entities/tables/fields the spec does not define.** Model sub-structures inside existing
+  fields (e.g. structured JSON) and reuse the existing queue/state entities rather than
+  demanding new ones. Inventing storage the spec didn't sanction is how the roster gets
+  violated.
+- **String-presence oracles match SYNTAX, not substrings.** A rule like "X must not be used"
+  is asserted against import/call syntax (an AST or a call-shaped regex), because a comment or
+  docstring legitimately MENTIONS the rule and must not trip the assertion.
+
 ## Test data — always use factory functions
 Write a `tests/factories.py` (or `factories.ts` for frontend) with one builder per model.
 Tests call `make_user(db)`, `make_item(db, user_id=...)` etc. — never inline raw dicts.

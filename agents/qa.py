@@ -19,7 +19,7 @@ from pathlib import Path
 from graph.state import ProjectState
 from tools import codegen
 from tools.llm import call_llm
-from tools.file_io import load_prompt, read_artifact, write_artifact, code_root
+from tools.file_io import load_prompt, load_skill, read_artifact, write_artifact, code_root
 from tools.learnings import augment_system, record_learning
 from tools.registry import (detect_toolchains, lint_e2e_spec, resolve_kit_testids,
                             kit_state_suffixes)
@@ -33,6 +33,10 @@ MAX_REVIEW_FILES = 12
 # wrongly flagged the frontend as "incomplete" (false-positive NO-GO). Truncation
 # is a last-resort safety net, not the default (cf. file_io MAX_READ_CHARS).
 MAX_REVIEW_CHARS_PER_FILE = 16000
+# The wiring manifest is a CONTRACT (props + REQUIRED MICROCOPY the e2e selectors depend
+# on) — like an API spec. A 4000-char cap starved QA of the contract when authoring specs.
+# Read it effectively untruncated (24000-char safety ceiling only).
+MANIFEST_CAP = 24000
 
 
 def run(state: ProjectState) -> dict:
@@ -48,7 +52,7 @@ def run(state: ProjectState) -> dict:
 
 
 def _do_pass_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True) -> dict:
-    system = augment_system(load_prompt("qa"), "qa")
+    system = augment_system(load_prompt("qa") + "\n\n" + load_skill("qa"), "qa")
     prd = read_artifact(state["prd_path"])
     qa_ctx = format_qa_context(qa_log, "qa")
     code = _read_code(state)
@@ -326,7 +330,7 @@ def _kit_selector_block(state: dict) -> tuple:
                        "suffixes — never the bare base): "
                        + "; ".join(f"{c} → {'|'.join(s)}"
                                    for c, s in sorted(suffixers.items())) + "\n")
-    manifest = read_artifact(state["components_manifest_path"], 4000) \
+    manifest = read_artifact(state["components_manifest_path"], MANIFEST_CAP) \
         if state.get("components_manifest_path") else ""
     block = ("\n\nKIT SELECTOR CONTRACT (design-owned components — the ONLY selector source):\n"
              "Static data-testids: " + ", ".join(sorted(static)) + "\n"
@@ -343,7 +347,7 @@ def _revise_e2e_specs(state: dict) -> dict:
     revised specs go straight back to integration (tests_passed stays True). If the
     failures are genuinely app defects the next integration round still fails and
     routes to the engineer as before — nothing is masked."""
-    system = augment_system(load_prompt("qa"), "qa")
+    system = augment_system(load_prompt("qa") + "\n\n" + load_skill("qa"), "qa")
     project_dir = code_root(state)
     kit_block, kit_ids, kit_prefixes = _kit_selector_block(state)
 
@@ -496,7 +500,7 @@ def _handle_fail(state: ProjectState) -> dict:
     Also distil a generalizable LESSON and record it (Phase 2.2) so future engineer
     runs don't repeat this class of bug — folded into the same call (no extra cost).
     """
-    system = augment_system(load_prompt("qa"), "qa")
+    system = augment_system(load_prompt("qa") + "\n\n" + load_skill("qa"), "qa")
 
     user_msg = f"""
 Test run failed. Diagnose this error output and give the engineer

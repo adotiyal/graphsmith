@@ -12,7 +12,7 @@ feedback and PM regenerates directly (no fresh Q&A round).
 """
 
 from graph.state import ProjectState
-from tools.file_io import load_prompt, read_artifact, write_artifact
+from tools.file_io import load_prompt, load_skill, read_artifact, write_artifact
 from tools.qa_utils import run_with_qa, work_call, format_qa_context
 
 CONSULT = ["ceo"]
@@ -32,7 +32,7 @@ def run(state: ProjectState) -> dict:
 
 def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True) -> dict:
     from tools.learnings import augment_system
-    system = augment_system(load_prompt("pm"), "pm")
+    system = augment_system(load_prompt("pm") + "\n\n" + load_skill("pm"), "pm")
     brief = read_artifact(state["prd_path"])
     qa_ctx = format_qa_context(qa_log, "pm")
     profile = state.get("product_profile")

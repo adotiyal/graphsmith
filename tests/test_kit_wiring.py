@@ -82,6 +82,29 @@ def test_node_modules_and_e2e_ignored(tmp_path):
     assert ok, msg
 
 
+# ── C2: parallel-component false-stalemate — a kit-named CONTAINER that IMPORTS the kit
+# is a legitimate wrapper, not a reimplementation, and must not fail the round. ──────────
+def test_kit_named_container_that_imports_kit_is_allowed(tmp_path):
+    # components/TaskCard.tsx that IMPORTS the kit's TaskCard is a wrapper — allow it.
+    root = _mk_project(tmp_path, wired=True, dupe=False)
+    (root / "frontend/src/components/TaskCard.tsx").write_text(
+        'import { TaskCard as KitTaskCard } from "./kit/TaskCard";\n'
+        "export const TaskCard = (p) => <KitTaskCard {...p}/>;")
+    ok, msg = check_kit_wiring(str(root), KIT)
+    assert ok, msg
+    assert "container" in msg.lower()   # the OK note records the allowance
+
+
+def test_parallel_component_message_is_actionable(tmp_path):
+    # a true parallel (kit-named, does NOT import the kit) must fail WITH rename guidance.
+    root = _mk_project(tmp_path, wired=True, dupe=True)
+    ok, msg = check_kit_wiring(str(root), KIT)
+    assert not ok
+    assert "rename" in msg.lower()
+    assert "Controller" in msg or "Container" in msg
+    assert "import" in msg.lower() and "wrap" in msg.lower()
+
+
 def test_engineer_fails_round_on_unwired_kit(llm, ws, no_docker, tmp_path, monkeypatch):
     from agents import engineer
     spec = seed(ws, "proj", "design", "tech_spec.md", "build it")

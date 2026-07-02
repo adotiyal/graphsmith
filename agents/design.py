@@ -450,6 +450,71 @@ def _existing_kit(state: dict) -> str:
     return "\n".join(f"- {n}" for n in names)
 
 
+# An import that pulls a real UI component library (not react itself, not a sibling kit
+# file, not a relative path) — its presence in an existing kit file means the kit's
+# convention is to COMPOSE that library, and new components must follow suit.
+_LIB_IMPORT_RE = re.compile(
+    r"""(?m)^\s*import\b[^;\n]*\bfrom\s+['"]([^'".][^'"]*)['"]""")
+
+
+def _kit_convention_block(state: dict, samples: int = 3) -> str:
+    """Detect the EXISTING kit's implementation convention. If the kit dir already has
+    components AND at least one imports from an installed component library (not react /
+    not a sibling kit file / not a relative path), return a prompt block carrying 2-3
+    representative files plus a FOLLOW-THE-CONVENTION instruction. Returns "" for a
+    greenfield/empty kit or one with no library convention — the caller then keeps the
+    self-contained greenfield default. Generic: follow-the-existing-convention beats
+    regenerate (a hardcoded self-contained mandate hand-rolled ~1800 unstyled lines
+    against a kit that wrapped an installed library)."""
+    kit_dir = code_root(state) / "frontend" / "src" / "components" / "kit"
+    if not kit_dir.is_dir():
+        return ""
+    files = sorted(p for p in kit_dir.glob("*.tsx"))
+    if not files:
+        return ""
+
+    def _lib_imports(text: str) -> list:
+        out = []
+        for spec in _LIB_IMPORT_RE.findall(text):
+            # First-party project path aliases ("@/lib/utils", "~/utils") are NOT installed
+            # component libraries — mirror registry.check_dependencies' alias exclusion, else a
+            # self-contained kit using an alias is misclassified as composing a library.
+            if spec.startswith(("@/", "~/")):
+                continue
+            head = spec.split("/")[0]
+            if head in ("react", "react-dom", "@", "~"):
+                continue
+            out.append(spec)
+        return out
+
+    has_lib_convention = False
+    chosen = []
+    for p in files:
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _lib_imports(text) and len(chosen) < samples:
+            chosen.append((p.name, text))
+        if _lib_imports(text):
+            has_lib_convention = True
+    if not (has_lib_convention and chosen):
+        return ""
+    sample_block = "\n\n".join(f"--- {name} ---\n{text[:4000]}" for name, text in chosen)
+    return f"""
+
+FOLLOW THE EXISTING KIT'S IMPLEMENTATION CONVENTION exactly — this kit already has
+components, and they COMPOSE an installed component library rather than hand-rolling UI.
+If existing kit components import from an installed component library, new/extended kit
+components MUST compose that same library (wrappers/composites over it). The SELF-CONTAINED
+rule below applies ONLY when there is no existing kit or no library convention — here there
+IS one, so it does NOT apply; import and wrap the same library these files use.
+
+Representative existing kit files (match their import + composition style):
+{sample_block}
+"""
+
+
 def _react_stack_known(state: dict) -> bool:
     """Design can only emit real components when the frontend framework is already a
     settled fact — the persisted CTO stack (managed project, run 2+) or the detected
@@ -502,6 +567,7 @@ Rules:
   - <Name> (frontend/src/components/kit/<Name>.tsx): props {{...}} — what it renders
   ## REQUIRED MICROCOPY (must appear verbatim in the running app)
   - "<string 1>"
+{_kit_convention_block(state)}
 {_kit_emit_instruction()}
 """
     root = code_root(state)

@@ -1,0 +1,2 @@
+- In-container HTTP healthchecks must probe 127.0.0.1, never localhost (which may resolve to IPv6 ::1 while the server binds IPv4), and must declare a start_period so slow-booting services aren't killed before they're ready.
+- Persist and reuse standing infrastructure decisions (e.g. the deploy target): follow a recorded standing decision and do not re-escalate a settled infra question every run — ask only when none is persisted.

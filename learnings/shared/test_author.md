@@ -1,0 +1,3 @@
+- Read the repo's existing standing/contract tests before authoring and never write a test that contradicts one; on a genuine spec-vs-contract conflict, escalate to the CEO/CTO instead of authoring a contradictory oracle that corners the engineer between two unmodifiable tests.
+- When the spec fixes a data model or roster, assert the spec's modeling — never require new entities/tables/fields the spec does not define; model sub-structures inside existing fields (e.g. structured JSON) and reuse existing queue/state entities.
+- String-presence oracles must match syntax, not substrings — assert a "must not use X" rule against import/call syntax so a comment or docstring that legitimately mentions the rule does not trip it.
