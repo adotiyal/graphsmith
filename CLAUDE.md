@@ -542,20 +542,23 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `prompts/<name>.txt` | Identity system prompt per agent (short, rarely changes) |
 | `skills/<name>.md` | Domain knowledge injected into system prompt (evolves over time) |
 
-## Model tiers (TWO models, split by WORKLOAD — set in `tools/llm.py`, 2026-06-27)
+## Model tiers (TWO models, split by WORKLOAD — set in `tools/llm.py`, 2026-07-02)
 
-**Only two models run everything: Opus 4.8 = deep thinking/decision/analysis; Sonnet 5 =
-hands-on coding.** The three tier KEYS are kept (so call sites/tests don't churn); each maps
-to one of the two models. `MAX_TOKENS` is 8192 on every tier.
+**Only two models run everything: Fable 5 = thinking/decision/analysis (anything non-coding);
+Opus 4.8 = hands-on coding.** (CEO/CTO mandate 2026-07-02.) The three tier KEYS are kept (so
+call sites/tests don't churn); each maps to one of the two models. `MAX_TOKENS` is 8192 on
+every tier.
 
-- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro (was Haiku — retired; cap raised 2048→8192 so a PRD/QA report can't truncate)
-- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup, QA e2e specs, DevOps config
-- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle (must NOT ride the coding model): Architect, Critic, Test Author (the correctness oracle), Design spec reasoning, design_qa VISION verdict (cap raised 4096→8192 for the test suite + spec)
+- `fast` → `claude-fable-5` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro (was Haiku — retired; cap raised 2048→8192 so a PRD/QA report can't truncate)
+- `strong` → `claude-opus-4-8` — CODING: Engineer (code gen + fix loop), Design kit/mockup, QA e2e specs, DevOps config
+- `reason` → `claude-fable-5` — DEEP THINKING + the oracle (must NOT ride the coding model): Architect, Critic, Test Author (test-case DESIGN is thinking, per the CEO/CTO), Design spec reasoning, design_qa VISION verdict (cap raised 4096→8192 for the test suite + spec)
 
 **Rule: the Test Author (oracle) and the design_qa vision verdict are analysis — keep them on
-Opus (`reason`), never on the Sonnet coding tier.** Verify Sonnet's codegen completeness on a
+the thinking model (`reason`), never on the coding tier.** Verify codegen completeness on a
 live run (the engineer's historical failure is truncation; `CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000`
-is the ceiling). `claude-sonnet-5` is the confirmed Sonnet 5 id.
+is the ceiling). NOTE: `claude-fable-5` was once DISABLED on the CLI backend (2026-06-15, 404) —
+re-verified live via `_cli_call` on 2026-07-02 before this mapping landed; if it 404s again,
+fall back both thinking tiers to `claude-opus-4-8` (the prior mapping).
 
 **Adaptive thinking (OPT-IN):** `tools/llm.EFFORT` maps each tier to an effort level
 (architect/critic/engineer `high`, cost-floor agents `standard`). Set `LLM_THINKING=adaptive`

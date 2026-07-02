@@ -269,14 +269,14 @@ python -m evals.triage_eval     # real-LLM accuracy of the Triage classifier (ne
 
 ## Model tiers
 
-**Two models, split by workload** — Opus 4.8 for thinking/decision/analysis, Sonnet 5 for
+**Two models, split by workload** — Fable 5 for thinking/decision/analysis, Opus 4.8 for
 hands-on coding. The three tier keys map onto those two models:
 
 | Tier | Model | Used by |
 |---|---|---|
-| `fast` | `claude-opus-4-8` | DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro |
-| `strong` | `claude-sonnet-5` | CODING: Engineer (code), Design (kit/mockup), QA e2e specs, DevOps config |
-| `reason` | `claude-opus-4-8` | DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design-QA vision |
+| `fast` | `claude-fable-5` | DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, peer consults, retro |
+| `strong` | `claude-opus-4-8` | CODING: Engineer (code), Design (kit/mockup), QA e2e specs, DevOps config |
+| `reason` | `claude-fable-5` | DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design-QA vision |
 
 **Backend:** by default every call goes through the **claude CLI** (`claude -p`,
 billed to your Claude subscription — zero marginal cost, vision included; quality

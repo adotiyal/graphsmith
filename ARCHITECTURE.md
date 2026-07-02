@@ -181,19 +181,22 @@ is the handoff mechanism, not a message thread. Q&A rounds use separate LLM call
 
 ### 5. Model allocation (two models, split by workload)
 
-`tools/llm.py` routes calls to **two models, split by workload** (2026-06-27) — Opus 4.8 for
-thinking/decision/analysis, Sonnet 5 for hands-on coding. Three tier keys map onto the two
-models (keys kept so call sites/tests don't churn); `MAX_TOKENS` is 8192 on every tier:
-- `fast` → `claude-opus-4-8` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis,
+`tools/llm.py` routes calls to **two models, split by workload** (2026-07-02) — Fable 5 for
+thinking/decision/analysis (anything non-coding), Opus 4.8 for hands-on coding. Three tier keys
+map onto the two models (keys kept so call sites/tests don't churn); `MAX_TOKENS` is 8192 on
+every tier:
+- `fast` → `claude-fable-5` — lighter DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis,
   peer consults, retro (was Haiku, now retired)
-- `strong` → `claude-sonnet-5` — CODING: Engineer (code gen + fix loop), Design kit/mockup,
+- `strong` → `claude-opus-4-8` — CODING: Engineer (code gen + fix loop), Design kit/mockup,
   QA e2e specs, DevOps config
-- `reason` → `claude-opus-4-8` — DEEP THINKING + the oracle: Architect, Critic, Test Author
-  (the correctness oracle), Design spec reasoning, and the design-QA vision verdict
+- `reason` → `claude-fable-5` — DEEP THINKING + the oracle: Architect, Critic, Test Author
+  (test-case design is thinking, per the CEO/CTO), Design spec reasoning, and the design-QA
+  vision verdict
 
-The oracle (Test Author) and the vision verdict are analysis, so they stay on Opus (`reason`),
-never on the Sonnet coding tier. Codegen moved Opus→Sonnet 5 (Sonnet is coding-optimized and
-the safety net is deterministic); validate completeness on a live run.
+The oracle (Test Author) and the vision verdict are analysis, so they stay on the thinking
+model (`reason`), never on the coding tier. `claude-fable-5` was re-verified live on the CLI
+backend on 2026-07-02 (it was once disabled there); if it ever 404s again, fall back the two
+thinking tiers to `claude-opus-4-8`.
 
 **Prompt caching (Phase 0):** the system block (identity + skill) is stable per
 agent and sent as a cached block (`cache_control`). Cache reads are ~0.1× input

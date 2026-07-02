@@ -35,21 +35,28 @@ def get_client() -> anthropic.Anthropic:
     return _client
 
 
-# CEO/CTO model allocation (updated 2026-06-27): TWO models, split by WORKLOAD.
-#   Opus 4.8  = deep thinking / decision-making / analysis
-#   Sonnet 5  = hands-on coding
-# The `fast` tier no longer means Haiku (retired) — it now runs Opus for the lighter
-# DECISION/ANALYSIS agents (CEO, PM, Triage, QA review+diagnosis, peer consults, retro).
-# `reason` runs Opus for the HEAVY thinking (Architect, Critic) AND the analysis work that
-# must NOT ride the coding model: the Test Author (it IS the correctness oracle), the Design
-# SPEC reasoning, and the design_qa VISION verdict. `strong` runs Sonnet for pure code
-# emission (Engineer, Design kit/mockup, QA e2e specs, DevOps config). On the claude-cli
-# (subscription) backend both models cost nothing extra — plan quota only.
+# CEO/CTO model allocation (updated 2026-07-02): TWO models, split by WORKLOAD.
+#   Fable 5   = thinking / decision-making / analysis (anything non-coding)
+#   Opus 4.8  = hands-on coding
+# The `fast` tier runs Fable for the lighter DECISION/ANALYSIS agents (CEO, PM, Triage,
+# QA review+diagnosis, peer consults, retro). `reason` runs Fable for the HEAVY thinking
+# (Architect, Critic) AND the analysis work that must NOT ride the coding model: the Test
+# Author (it IS the correctness oracle — test-case DESIGN is thinking, per the CEO/CTO),
+# the Design SPEC reasoning, and the design_qa VISION verdict. `strong` runs Opus for pure
+# code emission (Engineer, Design kit/mockup, QA e2e specs, DevOps config). On the
+# claude-cli (subscription) backend both models cost nothing extra — plan quota only.
+# NOTE: claude-fable-5 was once disabled on the CLI backend (2026-06-15, 404) — it was
+# re-verified live through _cli_call on 2026-07-02 before this mapping landed.
 MODELS = {
-    "fast":   "claude-opus-4-8",     # DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, consult, retro
-    "strong": "claude-sonnet-5",     # CODING: Engineer, Design kit/mockup, QA e2e specs, DevOps config
-    "reason": "claude-opus-4-8",     # DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design_qa vision
+    "fast":   "claude-fable-5",      # DECISION/ANALYSIS: CEO, PM, Triage, QA review+diagnosis, consult, retro
+    "strong": "claude-opus-4-8",     # CODING: Engineer, Design kit/mockup, QA e2e specs, DevOps config
+    "reason": "claude-fable-5",      # DEEP THINKING + oracle: Architect, Critic, Test Author, Design spec, design_qa vision
 }
+# Vision rides the tier's model (design_qa vision = `reason` = Fable). Live-smoked 2026-07-02:
+# fable-5 vision PASSES through the CLI on a realistic PNG. WATCH-ITEM: on a DEGENERATE image
+# (a 2x2-pixel synthetic) fable looped tool-use to error_max_turns while opus degraded
+# gracefully — if live design_qa vision ever hits error_max_turns on real screenshots, route
+# image calls to "claude-opus-4-8" (add a VISION_MODEL override here).
 
 # All tiers now share 8192: `fast` rose from 2048 (Haiku-sized) because it now hosts full
 # Opus analysis outputs (a PRD / QA report truncates at 2048), and `reason` rose from 4096

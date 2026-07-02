@@ -424,14 +424,14 @@ def test_all_skills_load_untruncated():
 
 
 def test_model_tiers_thinking_vs_generation():
-    # CEO/CTO allocation (2026-06-27): TWO models, split by workload.
-    # Opus 4.8 = thinking/decision/analysis (fast + reason); Sonnet 5 = coding (strong).
+    # CEO/CTO allocation (2026-07-02): TWO models, split by workload.
+    # Fable 5 = thinking/decision/analysis (fast + reason); Opus 4.8 = coding (strong).
     from tools.llm import MODELS
-    assert MODELS["reason"] == "claude-opus-4-8"   # deep thinking + oracle (architect/critic/test_author/design-spec/vision)
-    assert MODELS["strong"] == "claude-sonnet-5"   # hands-on coding (engineer/design-kit/qa-e2e/devops)
-    assert MODELS["fast"] == "claude-opus-4-8"     # lighter decision/analysis (ceo/pm/triage/qa-review/consult/retro)
+    assert MODELS["reason"] == "claude-fable-5"    # deep thinking + oracle (architect/critic/test_author/design-spec/vision)
+    assert MODELS["strong"] == "claude-opus-4-8"   # hands-on coding (engineer/design-kit/qa-e2e/devops)
+    assert MODELS["fast"] == "claude-fable-5"      # lighter decision/analysis (ceo/pm/triage/qa-review/consult/retro)
     # exactly two distinct models across all tiers
-    assert set(MODELS.values()) == {"claude-opus-4-8", "claude-sonnet-5"}
+    assert set(MODELS.values()) == {"claude-fable-5", "claude-opus-4-8"}
 
 
 def test_llm_backend_dispatch(monkeypatch):
@@ -450,10 +450,14 @@ def test_llm_backend_dispatch(monkeypatch):
     monkeypatch.setattr(llm, "_api_call", fake_api)
     monkeypatch.delenv("LLM_BACKEND", raising=False)
     assert llm.call_llm("sys", "hello", tier="reason") == "cli-out"   # DEFAULT = cli
-    assert calls["cli"][2] == "claude-opus-4-8"            # model id passed through
+    assert calls["cli"][2] == "claude-fable-5"             # thinking tier passes fable through
     imgs = [("app", "/tmp/x.png")]
     assert llm.call_llm("sys", "see", tier="strong", images=imgs) == "cli-out"
     assert calls["cli"][3] == imgs                        # vision via CLI too
+    # Vision rides the tier's model — design_qa (reason) vision runs Fable, live-smoked
+    # 2026-07-02 on a realistic PNG (see the watch-item comment at MODELS).
+    assert llm.call_llm("sys", "see", tier="reason", images=imgs) == "cli-out"
+    assert calls["cli"][2] == "claude-fable-5"
     monkeypatch.setenv("LLM_BACKEND", "api")
     assert llm.call_llm("sys", "hello") == "api-out"      # explicit opt-out
 
