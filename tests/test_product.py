@@ -61,3 +61,29 @@ def test_deploy_target_absent_is_empty(product_root):
 def test_deploy_target_save_load(product_root):
     product.save_deploy_target("local compose only, dry-run manifests")
     assert "dry-run" in product.load_deploy_target()
+
+
+def test_save_strips_reemitted_pinned_block(product_root):
+    # Agents see load()'s pinned+managed concatenation and re-emit it wholesale on save —
+    # observed live: the pinned block got duplicated INTO the managed file. save must strip it.
+    product_root.mkdir(parents=True, exist_ok=True)
+    (product_root / "design_system.pinned.md").write_text(
+        "## STANDING RULE\nConsume the installed design system.")
+    echoed = product.load_design_system_echo() if hasattr(product, "load_design_system_echo") else None
+    product.save_design_system(
+        "## STANDING RULE\nConsume the installed design system.\n\n## Tokens\nspacing: 8px")
+    managed = (product_root / "design_system.md").read_text()
+    assert "STANDING RULE" not in managed          # pinned copy stripped from managed
+    assert "spacing: 8px" in managed               # agent content kept
+    loaded = product.load_design_system()
+    assert loaded.count("STANDING RULE") == 1      # pinned appears exactly once
+
+
+def test_pinned_and_managed_capped_separately_no_tail_eviction(product_root):
+    # Capping the CONCATENATION let a large pinned tier evict the managed TAIL (the newest
+    # additions) — observed live. Each tier is capped on its own instead.
+    product_root.mkdir(parents=True, exist_ok=True)
+    (product_root / "design_system.pinned.md").write_text("P" * 4000)
+    product.save_design_system(("M" * 5000) + "\nNEWEST-ADDITION-MARKER")
+    loaded = product.load_design_system()
+    assert "NEWEST-ADDITION-MARKER" in loaded      # tail survives even though total > 6000

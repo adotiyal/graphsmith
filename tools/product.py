@@ -85,17 +85,32 @@ def load_design_system() -> str:
     pinned_text = pinned.read_text(encoding="utf-8").strip() if pinned.exists() else ""
     managed = _design_system_path()
     managed_text = managed.read_text(encoding="utf-8").strip() if managed.exists() else ""
+    # Cap the tiers SEPARATELY — capping the concatenation let a large pinned tier silently
+    # evict the TAIL of the managed memory (the newest additions), observed live.
+    if pinned_text:
+        pinned_text = _cap(pinned_text, MAX_DESIGN_SYSTEM_CHARS, "design_system.pinned.md")
+    if managed_text:
+        managed_text = _cap(managed_text, MAX_DESIGN_SYSTEM_CHARS, "design_system.md")
     if pinned_text and managed_text:
-        combined = pinned_text + "\n\n" + managed_text
-    else:
-        combined = pinned_text or managed_text
-    return _cap(combined, MAX_DESIGN_SYSTEM_CHARS, "design_system.md")
+        return pinned_text + "\n\n" + managed_text
+    return pinned_text or managed_text
 
 
 def save_design_system(text: str) -> str:
-    """Write ONLY the managed tier — the pinned tier is human-owned and never touched here."""
+    """Write ONLY the managed tier — the pinned tier is human-owned and never touched here.
+
+    Agents see load_design_system()'s pinned+managed CONCATENATION and re-emit it wholesale,
+    so a save would silently duplicate the pinned block INTO the managed file (observed live:
+    the next load then doubled the pinned rules and blew the cap). Strip any embedded copy of
+    the current pinned text before writing."""
     PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
-    _design_system_path().write_text((text or "").strip(), encoding="utf-8")
+    cleaned = (text or "").strip()
+    pinned = _design_system_pinned_path()
+    if pinned.exists():
+        pinned_text = pinned.read_text(encoding="utf-8").strip()
+        if pinned_text and pinned_text in cleaned:
+            cleaned = cleaned.replace(pinned_text, "", 1).strip()
+    _design_system_path().write_text(cleaned, encoding="utf-8")
     return str(_design_system_path())
 
 
