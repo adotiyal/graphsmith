@@ -1210,6 +1210,15 @@ def test_theme_findings_detects_missing_toggle_and_dark_variants():
               '<button data-testid="theme-toggle">🌙</button>'
               '<div class="bg-white dark:bg-gray-900">x</div></body></html>')
     assert _theme_findings(themed) == []
+    # Token-based theming (attribute-switched custom properties) counts too — a
+    # data-theme mechanism false-failed the "dark:"-only heuristic on a live run.
+    token_themed = ('<html data-theme="light"><head><script>var m=window.matchMedia('
+                    '"(prefers-color-scheme: dark)");</script></head><body>'
+                    '<button data-testid="theme-toggle">Dark mode</button></body></html>')
+    assert _theme_findings(token_themed) == []
+    # A toggle alone without ANY dark-mode mechanism still fails the mechanism check.
+    toggle_only = '<body><button data-testid="theme-toggle">Dark</button></body>'
+    assert len(_theme_findings(toggle_only)) == 1
 
 
 def test_seo_findings_detects_all_misses_and_passes_full_page():

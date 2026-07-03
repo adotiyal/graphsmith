@@ -1812,12 +1812,17 @@ def _seo_findings(page_html: str) -> list:
 
 def _theme_findings(page_html: str) -> list:
     """Deterministic dual-theme floor: the served HTML must carry the theme toggle and
-    dark-mode variant classes (Tailwind class names are visible in SSR output)."""
+    EVIDENCE of a dark-mode mechanism. Stacks implement dark mode differently — accept
+    any of: utility-class variants ("dark:", Tailwind-style), attribute-switched token
+    theming ("data-theme", custom properties flipped under [data-theme=dark]), or a
+    media-query mechanism ("prefers-color-scheme"). Requiring only "dark:" was coupled
+    to the default stack and false-failed a token-themed app (live 2026-07)."""
     findings = []
     if "theme-toggle" not in page_html:
         findings.append('missing ThemeToggle (data-testid="theme-toggle") in the app chrome')
-    if "dark:" not in page_html:
-        findings.append("no dark: variant classes in the served HTML — dark mode not implemented")
+    if not any(m in page_html for m in ("dark:", "data-theme", "prefers-color-scheme")):
+        findings.append("no dark-mode mechanism in the served HTML (no dark: variants, "
+                        "data-theme attribute theming, or prefers-color-scheme) — dark mode not implemented")
     return findings
 
 
