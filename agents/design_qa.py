@@ -53,14 +53,21 @@ def run(state: ProjectState) -> dict:
         _write_report(state, f"# Design QA — skipped\n\n{skip_reason}\n")
         return _out(state, passed=True, note=skip_reason)
 
-    mockup_png = str(WORKSPACE_ROOT / state["project_id"] / "tests" / "mockup_screenshot.png")
-    ok, msg = render_mockup_screenshot(state["design_mockup_path"], mockup_png)
-    if not ok:
-        note = f"mockup render failed — design check skipped: {msg}"
-        _write_report(state, f"# Design QA — skipped\n\n{note}\n")
-        return _out(state, passed=True, note=note)
+    # Baseline priority (Work item C): when an EXTERNAL design shipped a rendered screen image,
+    # design copied it to design/mockup_baseline.png — compare the live app against THAT real
+    # designed screen (skip the mockup render). Else render the self-generated mockup as before.
+    baseline = state.get("design_baseline_png")
+    if baseline and Path(baseline).exists():
+        ref_png = baseline
+    else:
+        ref_png = str(WORKSPACE_ROOT / state["project_id"] / "tests" / "mockup_screenshot.png")
+        ok, msg = render_mockup_screenshot(state["design_mockup_path"], ref_png)
+        if not ok:
+            note = f"mockup render failed — design check skipped: {msg}"
+            _write_report(state, f"# Design QA — skipped\n\n{note}\n")
+            return _out(state, passed=True, note=note)
 
-    verdict, findings = _compare(state, state["app_screenshot_path"], mockup_png)
+    verdict, findings = _compare(state, state["app_screenshot_path"], ref_png)
     attempts = state.get("design_qa_attempts", 0) + 1
 
     if not verdict:
@@ -80,8 +87,10 @@ def run(state: ProjectState) -> dict:
     return out
 
 
-def _compare(state: dict, app_png: str, mockup_png: str) -> tuple[bool, str]:
-    """One vision call: app screenshot vs mockup screenshot vs design spec."""
+def _compare(state: dict, app_png: str, ref_png: str) -> tuple[bool, str]:
+    """One vision call: app screenshot vs the design reference(s) vs design spec. The
+    reference is the imported baseline image when present (Work item C), else the rendered
+    mockup; up to 3 reference images total when the import shipped multiple screens."""
     system = load_prompt("design_qa")
     # Full spec, not a truncation — a 6000-char cap once hid half the design contract
     # from the judge, which then flagged correct implementations of unseen rules.
@@ -126,12 +135,19 @@ wrong/missing microcopy, missing component, or unstyled/divergent layout = MISAL
 Put every divergence in `findings`, one per line as "- [element]: expected <design> /
 got <app>" (findings may be empty when ALIGNED).
 """
+    images = [("LIVE APP (what users currently see):", app_png),
+              ("DESIGN MOCKUP (the contract):", ref_png)]
+    # Work item C: when the imported design shipped MULTIPLE screens, add up to 2 more
+    # references (3 total) so the judge sees every designed screen, not only the first.
+    extras = [p for p in (state.get("design_baseline_pngs") or [])
+              if p != ref_png and Path(p).exists()]
+    for i, p in enumerate(extras[:2], start=2):
+        images.append((f"DESIGN REFERENCE {i} (additional designed screen):", p))
     data = call_structured(
         system, user_msg, _VERDICT_SCHEMA, tier="reason",
         default={"verdict": "MISALIGNED",
                  "findings": "(design-QA verdict could not be parsed — treated as MISALIGNED)"},
-        images=[("LIVE APP (what users currently see):", app_png),
-                ("DESIGN MOCKUP (the contract):", mockup_png)])
+        images=images)
     verdict = data.get("verdict") == "ALIGNED"
     findings = (data.get("findings") or "").strip()
     return verdict, findings

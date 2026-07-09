@@ -86,6 +86,13 @@ class ProjectState(TypedDict):
     # absent/unusable → normal generate-from-repo-patterns flow. See tools/design_source.py.
     design_source:  Optional[str]
 
+    # --- Standing product spec (Work item B — spec-coverage ledger) ---
+    # Optional path to the cumulative product spec (markdown with numbered sections). When
+    # set, the runner seeds/updates a coverage ledger (<repo>/product/spec_ledger.md) so
+    # scope doesn't decay across runs and PM sees which sections are still unimplemented.
+    # Absent = byte-identical no-op (no ledger created). See tools/spec_ledger.py.
+    spec_path:      Optional[str]
+
     # --- Project continuity (single persistent product across runs) ---
     managed_project: bool          # True = the platform's own persistent project (workspace/project)
     project_ledger:  Optional[str]  # summary of features already built — fed to planning agents
@@ -120,6 +127,12 @@ class ProjectState(TypedDict):
     app_screenshot_path:  Optional[str]  # live-app PNG captured by integration while the stack was up
     design_qa_passed:     bool           # vision verdict: the app matches the design
     design_qa_attempts:   int            # bounded loop back to engineer (MAX_DESIGN_QA_ATTEMPTS)
+    # Work item C — when an EXTERNAL design source ships rendered screen IMAGES, design copies
+    # the first to design/mockup_baseline.png and design_qa compares the live app against THAT
+    # real designed screen instead of graphsmith's self-generated mockup. Optional (like other
+    # path fields): absent → design_qa renders mockup.html as today (byte-identical).
+    design_baseline_png:  Optional[str]  # primary imported reference PNG (the design_qa baseline)
+    design_baseline_pngs: list           # all imported reference PNGs (design_qa uses up to 3)
 
     # --- Design-owned component kit (alignment by construction) ---
     design_component_files:  list           # presentational components design wrote — engineer must not touch

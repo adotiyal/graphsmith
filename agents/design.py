@@ -14,6 +14,7 @@ Q&A peers: CEO/CTO (product/brand/scope), PM (scope).
 """
 
 import re
+from pathlib import Path
 
 from graph.state import ProjectState
 from tools.llm import call_llm
@@ -326,31 +327,70 @@ def _finalize(state: dict, system: str, spec: str, spec_path: str, profile: str,
 
 
 def _resolve_design_source(state: dict):
-    """Resolve state['design_source'] to {dir, name, html} for the primary imported mockup,
-    or None when unset/unresolvable/no usable HTML (→ normal generate flow). Never raises."""
+    """Resolve state['design_source'] to a design bundle, or None when unset/unresolvable/no
+    usable design (→ normal generate flow). Never raises.
+
+    Work item C: an HTML mockup keeps `html` set (the imported-HTML path is byte-identical);
+    additionally, STORY compositions (`stories`) and rendered screen IMAGES (`images`) are
+    surfaced so a source with NO html but stories/images is still usable — `_do_imported`
+    then writes a spec that matches the real designed screens (stories = the authoritative
+    compositions, first image = the design_qa baseline)."""
     src = (state.get("design_source") or "").strip()
     if not src:
         return None
     localdir = design_source.resolve(src)
     if not localdir:
         return None
-    primary = design_source.load_primary_mockup(localdir)
-    if not primary:
-        return None
-    return {"dir": localdir, "name": primary[0], "html": primary[1]}
+    primary = design_source.load_primary_mockup(localdir)          # html mockup or None
+    screens = design_source.find_screens(localdir)
+    images = [s["path"] for s in screens if s["kind"] == "image"]
+    stories = design_source.load_story_excerpts(localdir)
+    if not primary and not stories and not images:
+        return None                                                # nothing usable
+    if primary:
+        name = primary[0]
+    elif images:
+        name = os.path.basename(images[0])
+    else:
+        name = stories[0][0]
+    return {"dir": localdir, "name": name,
+            "html": primary[1] if primary else None,
+            "images": images, "stories": stories}
 
 
 def _do_imported(state: dict, system: str, prd: str, profile: str, qa_ctx: str,
                  imported: dict, qa_log: list, rounds: dict, allow_clarify: bool) -> dict:
-    """Design REUSE path (Change 1): write a spec that MATCHES the imported mockup, use that
-    mockup AS the design (design_qa baseline + the engineer's visual truth), build the kit
-    from it, and skip the 3-directions human pick entirely. Regenerates on a critic re-run."""
-    mockup_html = imported["html"]
+    """Design REUSE path: write a spec that MATCHES an imported design, use it AS the design
+    (design_qa baseline + the engineer's visual truth), build the kit from it, and skip the
+    3-directions human pick entirely. Regenerates on a critic re-run.
+
+    Two shapes (Work item C):
+      • HTML mockup present → EXACTLY the original path (byte-identical).
+      • No html but STORY compositions and/or screen IMAGES → still imported mode: the stories
+        are injected as THE AUTHORITATIVE DESIGNED COMPOSITIONS (the spec must match them, the
+        kit must compose the same library components), the first image becomes the design_qa
+        baseline (design/mockup_baseline.png), and mockup.html is still GENERATED (stories
+        steer it, images ground it) so downstream mockup consumers never break."""
+    mockup_html = imported.get("html")
+    stories = imported.get("stories") or []
+    images = imported.get("images") or []
 
     ds = product.load_design_system()
     ds_block = f"\n\nESTABLISHED DESIGN SYSTEM (extend, never contradict):\n{ds}" if ds else ""
     feedback = state.get("review_notes")
     feedback_block = f"\n\nDESIGN CRITIC FOUND GAPS (fix every one):\n{feedback}" if feedback else ""
+
+    # The authoritative-design block for the SPEC prompt: the imported HTML (byte-identical to
+    # the original path) OR — with no html — the story compositions. VISION ROUTE DECISION: the
+    # screen IMAGES are NOT sent on this call. The spec call runs through work_call → call_llm
+    # WITHOUT images= (a non-vision path), and tools/qa_utils.work_call is out of scope to
+    # change; design_qa's proven vision route is call_llm(..., images=…). So images are injected
+    # into the MOCKUP-generation call (_build_mockup) below, which uses that same route.
+    if mockup_html:
+        design_block = ("IMPORTED DESIGN (the visual + copy truth — reproduce it faithfully):\n"
+                        + mockup_html[:12000])
+    else:
+        design_block = _authoritative_compositions_block(stories)
 
     user_msg = f"""An existing design has ALREADY been chosen and is provided below. Do NOT
 propose design directions and do NOT invent a new look — write the UI/UX spec to MATCH the
@@ -362,8 +402,7 @@ PRODUCT PROFILE (standing context — who/what/brand/goals):
 PRD (the feature):
 {prd}
 
-IMPORTED DESIGN (the visual + copy truth — reproduce it faithfully):
-{mockup_html[:12000]}
+{design_block}
 {ds_block}
 {qa_ctx}{feedback_block}
 
@@ -389,9 +428,19 @@ If this feature has NO user-facing surface, write "NO UI SURFACE - backend featu
 
     # Provenance: record the source so the run is auditable and licensing is traceable.
     if "## Design Source" not in spec:
-        spec += (f"\n\n## Design Source\nREUSED an external design: "
-                 f"{state.get('design_source')} (screen: {imported['name']}). "
-                 f"Directions + human pick skipped — the imported design is authoritative.")
+        if mockup_html:
+            spec += (f"\n\n## Design Source\nREUSED an external design: "
+                     f"{state.get('design_source')} (screen: {imported['name']}). "
+                     f"Directions + human pick skipped — the imported design is authoritative.")
+        else:
+            kinds = []
+            if stories:
+                kinds.append(f"{len(stories)} story composition(s)")
+            if images:
+                kinds.append(f"{len(images)} screen image(s)")
+            spec += (f"\n\n## Design Source\nREUSED an external design: "
+                     f"{state.get('design_source')} ({', '.join(kinds) or imported['name']}). "
+                     f"Directions + human pick skipped — the imported design is authoritative.")
 
     path = write_artifact(state["project_id"], "design", "design_spec.md", spec)
 
@@ -408,14 +457,26 @@ If this feature has NO user-facing surface, write "NO UI SURFACE - backend featu
             "qa_log": qa_log, "qa_rounds": rounds, "ceo_qa_from": None,
         }
 
-    # The imported mockup IS the design: design_qa's baseline + the engineer's visual truth.
-    mockup_path = write_artifact(state["project_id"], "design", "mockup.html", mockup_html)
+    if mockup_html:
+        # The imported mockup IS the design: design_qa's baseline + the engineer's visual truth.
+        mockup_path = write_artifact(state["project_id"], "design", "mockup.html", mockup_html)
+        kit_mockup, kit_stories = mockup_html, None
+        baseline_png, baseline_pngs = None, []
+    else:
+        # No html: copy imported screen image(s) as the design_qa baseline, and STILL generate
+        # mockup.html (stories steer it, images ground it) so downstream consumers never break.
+        baseline_png, baseline_pngs = _copy_baselines(state, images)
+        kit_mockup = _build_mockup(system, spec, profile,
+                                   story_excerpts=stories, images=baseline_pngs[:3])
+        mockup_path = write_artifact(state["project_id"], "design", "mockup.html", kit_mockup)
+        kit_stories = stories
 
     component_files, manifest_path = [], None
     if _react_stack_known(state):
-        component_files, manifest_path = _build_components(system, spec, mockup_html, state)
+        component_files, manifest_path = _build_components(
+            system, spec, kit_mockup, state, story_excerpts=kit_stories)
 
-    return {
+    out = {
         "current_node": "design",
         "design_path": path,
         "design_spec_path": path,
@@ -430,6 +491,48 @@ If this feature has NO user-facing surface, write "NO UI SURFACE - backend featu
         "qa_rounds": rounds,
         "ceo_qa_from": None,
     }
+    if baseline_png:   # imported real designed screens — design_qa compares against these
+        out["design_baseline_png"] = baseline_png
+        out["design_baseline_pngs"] = baseline_pngs
+    return out
+
+
+def _authoritative_compositions_block(story_excerpts: list) -> str:
+    """The imported STORY compositions as a labeled text block for the spec / kit / mockup
+    prompts. Empty when there are no stories (keeps the normal + html-mode prompts byte-
+    identical). The stories are the design GROUND TRUTH — the exact screen structure the spec
+    must match and the exact library components the kit must compose."""
+    if not story_excerpts:
+        return ""
+    body = "\n\n".join(f"--- {name} ---\n{text}" for name, text in story_excerpts)
+    return ("THE AUTHORITATIVE DESIGNED COMPOSITIONS (the real, already-chosen screens — "
+            "Storybook/screen stories). MATCH THESE SCREENS: reproduce their structure, and "
+            "the kit must COMPOSE THE SAME library components these stories compose (same "
+            "imports, same usage) — never invent a new look.\n\n" + body)
+
+
+def _copy_baselines(state: dict, images: list, limit: int = 3) -> tuple:
+    """Copy up to `limit` imported screen images into the run's design dir as
+    mockup_baseline[.ext] / mockup_baseline_2[.ext] … and return (primary_path, [all_paths]).
+    The first is the design_qa baseline; the extras let design_qa compare against several
+    designed screens. Best-effort — a copy failure is skipped, never raised."""
+    design_dir = WORKSPACE_ROOT / state["project_id"] / "design"
+    try:
+        design_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None, []
+    out: list = []
+    for n, img in enumerate(images[:limit]):
+        ext = os.path.splitext(img)[1].lower()
+        ext = ext if ext in (".png", ".jpg", ".jpeg", ".webp") else ".png"
+        stem = "mockup_baseline" if n == 0 else f"mockup_baseline_{n + 1}"
+        dst = design_dir / f"{stem}{ext}"
+        try:
+            dst.write_bytes(Path(img).read_bytes())
+            out.append(str(dst))
+        except OSError:
+            continue
+    return (out[0] if out else None), out
 
 
 def _stack_answer(qa_log: list):
@@ -528,9 +631,13 @@ def _use_tools() -> bool:
     return os.environ.get("AGENT_CODEGEN", "tools").strip().lower() != "text"
 
 
-def _build_components(system: str, spec: str, mockup_html: str, state: dict) -> tuple:
+def _build_components(system: str, spec: str, mockup_html: str, state: dict,
+                      story_excerpts: list = None) -> tuple:
     """Emit the design-owned presentational component kit into the code root
-    (frontend/src/components/kit/) + a manifest the engineer wires against."""
+    (frontend/src/components/kit/) + a manifest the engineer wires against. When an external
+    design ships STORY compositions (imported no-html path), they are appended as the wiring
+    truth — the kit must compose the same library components the stories compose. Absent
+    (normal + imported-html flows) → byte-identical."""
     user_msg = f"""You already designed this feature (spec + mockup below). Now emit the REAL
 presentational React components an engineer will wire to business logic — you own the
 pixels and words; the engineer may NOT modify these files.
@@ -570,6 +677,8 @@ Rules:
 {_kit_convention_block(state)}
 {_kit_emit_instruction()}
 """
+    if story_excerpts:   # imported no-html path: the stories are the wiring truth
+        user_msg += "\n\n" + _authoritative_compositions_block(story_excerpts)
     root = code_root(state)
 
     def _emit(extra_msg=""):
@@ -584,9 +693,53 @@ Rules:
             _write_kit_text(call_llm(system, user_msg + extra_msg, tier="strong"), state)
 
     _emit()
+    _enforce_ds_composition(state, _emit)
     _enforce_interface_additive(state, _emit)
     _enforce_testid_uniqueness(state, _emit)
     return _collect_kit(state)
+
+
+def _kit_relpaths(state: dict) -> list:
+    """The emitted kit component files as project-relative paths (the shape
+    registry.check_ds_composition/check_kit_wiring expect). Empty when no kit exists yet."""
+    kit_dir = code_root(state) / "frontend" / "src" / "components" / "kit"
+    if not kit_dir.is_dir():
+        return []
+    return [f"frontend/src/components/kit/{p.name}"
+            for p in sorted(kit_dir.glob("*.tsx")) + sorted(kit_dir.glob("*.jsx"))]
+
+
+def _enforce_ds_composition(state: dict, reemit) -> None:
+    """COMPOSE-DON'T-REIMPLEMENT: when the product ships an installed component library, a kit
+    file that RE-IMPLEMENTS a library-exported component (right tokens, wrong composition) is a
+    design defect the engineer can't fix (the kit is design-owned). Force ONE compose-instead
+    round; if it persists, append an advisory warning to the manifest and proceed — a
+    detection/tooling miss must never hard-block the pipeline (mirrors _enforce_testid_uniqueness)."""
+    from tools import registry
+    root = code_root(state)
+    ok, msg = registry.check_ds_composition(str(root), _kit_relpaths(state))
+    if ok:
+        return
+    from tools.learnings import emit_feedback
+    emit_feedback("design", "ds_composition", msg[:900])
+    reemit("\n\n" + msg + "\n\nCOMPOSE, do not re-implement: for each file above, import the "
+           "named component from the installed library and wrap it (a thin wrapper that "
+           "forwards props and hangs any extra fields/data-testids on an element AROUND the "
+           "library component). Do NOT hand-roll a visual replacement of a component the "
+           "library already exports.")
+    ok, msg = registry.check_ds_composition(str(root), _kit_relpaths(state))
+    if ok:
+        return
+    # Still re-implementing after one round → advisory only (never block the pipeline).
+    manifest = root / "frontend" / "src" / "components" / "kit" / "MANIFEST.md"
+    warning = ("\n\n<!-- DS-COMPOSITION ADVISORY (unresolved) -->\n> "
+               + msg.replace("\n", "\n> ") + "\n")
+    try:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        prior = manifest.read_text(encoding="utf-8", errors="replace") if manifest.exists() else ""
+        manifest.write_text(prior + warning, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _enforce_testid_uniqueness(state: dict, reemit) -> None:
@@ -687,9 +840,12 @@ def _collect_kit(state: dict) -> tuple:
     return files, manifest
 
 
-def _build_mockup(system: str, spec: str, profile: str, direction: dict = None) -> str:
+def _build_mockup(system: str, spec: str, profile: str, direction: dict = None,
+                  story_excerpts: list = None, images: list = None) -> str:
     """Generate a single self-contained HTML/Tailwind mockup from the design spec —
-    optionally for ONE specific design direction (the 3-options human choice)."""
+    optionally for ONE specific design direction (the 3-options human choice). On the
+    imported no-html path the STORY compositions steer it and the screen IMAGES ground it
+    via the vision route (call_llm images=). Both default None → byte-identical normal flow."""
     dir_block = (f"""
 DESIGN DIRECTION — this mockup must follow THIS direction (not the other ones in the spec):
 {direction['id']} — {direction['title']}
@@ -717,7 +873,9 @@ Rules:
 - Use the actual labels, empty-state copy, error messages and CTAs from the spec.
 - No external JS beyond the Tailwind CDN.
 - Output ONLY the HTML document. No prose, no markdown fences."""
-    return _extract_html(call_llm(system, user_msg, tier="strong"))
+    if story_excerpts:   # imported no-html path: reproduce these real designed screens
+        user_msg += "\n\n" + _authoritative_compositions_block(story_excerpts)
+    return _extract_html(call_llm(system, user_msg, tier="strong", images=images))
 
 
 def _extract_html(text: str) -> str:

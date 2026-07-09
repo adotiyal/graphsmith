@@ -62,6 +62,9 @@ Your output is brought up LIVE with `docker compose up --build` and verified. Sh
 ## Ship a feature that BUILDS and is fully WIRED (non-negotiable)
 Passing tests is not enough — the feature must compile end to end and every surface you add
 must be reachable and functional.
+- **FIDELITY vs CONTRACT: extend the wrapper, never fork the visual.** If a test/contract
+  needs a hook (testid/microcopy) the design-owned kit component doesn't expose, add it on a
+  wrapper element around that component — never re-build the component to gain the hook.
 - **SAME-ROUND SYNC:** if code references a new persisted field, the schema/migration/client
   change lands in the SAME round. Never reference storage that doesn't exist yet — the feature
   must typecheck/compile before hand-off *(Default stack: a route reading a column absent from

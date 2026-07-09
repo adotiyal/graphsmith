@@ -30,7 +30,8 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40]
 
 
-def run_new_feature(graph, target_repo: str = None, design_source: str = None):
+def run_new_feature(graph, target_repo: str = None, design_source: str = None,
+                    spec_path: str = None):
     print("\n=== CEO INPUT ===")
 
     # Project continuity: unless you point at an external --repo, every run targets the
@@ -49,6 +50,16 @@ def run_new_feature(graph, target_repo: str = None, design_source: str = None):
             print(f"[project] starting a NEW project at {target_repo}")
     else:
         print(f"[external repo] target: {target_repo}")
+
+    # Standing product-spec ledger (Work item B): seed/refresh coverage tracking from the
+    # cumulative spec so scope doesn't decay across runs. No-op (no ledger) without --spec.
+    if spec_path:
+        from tools import spec_ledger
+        n = spec_ledger.init_ledger(target_repo, spec_path)
+        if n:
+            print(f"[spec] tracking {n} product-spec section(s) → {spec_ledger.ledger_path(target_repo)}")
+        else:
+            print(f"[spec] no numbered sections found in {spec_path} — spec ledger not seeded")
 
     print("Describe the feature you want to build:")
     feature_request = input("> ").strip()
@@ -111,6 +122,7 @@ def run_new_feature(graph, target_repo: str = None, design_source: str = None):
         "repo_map_path": None,
         "detected_stack": None,
         "design_source": design_source,
+        "spec_path": spec_path,
         "managed_project": managed,
         "project_ledger": ledger or None,
         "test_files": [],
@@ -234,6 +246,22 @@ def _run_to_completion(graph, config: dict, project_id: str):
             for _agent, _lessons in _retro.items():
                 for _l in _lessons:
                     print(f"  {_agent}: {_l}")
+        # Spec-coverage ledger (Work item B): mark the sections this feature covered. Like
+        # run_retro this is best-effort — a finished run is never broken by it.
+        try:
+            _spec_root = final.get("target_repo")
+            if _spec_root:
+                from tools import spec_ledger
+                if spec_ledger.load_ledger(_spec_root):
+                    from tools.llm import call_llm
+                    _covered = spec_ledger.update_ledger(
+                        _spec_root, _spec_feature_summary(final),
+                        lambda p: call_llm("You track product-spec coverage. Return only the "
+                                           "requested JSON.", p, tier="fast"))
+                    if _covered:
+                        print(f"[spec] marked covered this run: {', '.join(_covered)}")
+        except Exception:
+            pass
         from tools import report_html as _rh
         _audit = _rh.render_audit(final, str(trace.get().path), retro=_retro, overseer=report)
         if _audit:
@@ -294,6 +322,19 @@ def _handle_approval(graph, config: dict, values: dict, project_id: str):
         graph.update_state(config, {"approval_decision": "approve", "approval_feedback": None})
 
 
+def _spec_feature_summary(final: dict) -> str:
+    """The shipped feature's brief + PRD text (caller-capped) for spec-coverage marking."""
+    summary = (final.get("feature_request") or "").strip()
+    prd_path = final.get("prd_path")
+    if prd_path:
+        try:
+            with open(prd_path, "r", encoding="utf-8", errors="replace") as f:
+                summary += "\n\n" + f.read()
+        except OSError:
+            pass
+    return summary[:6000]
+
+
 def _read_file(path: str) -> str:
     if not path:
         return "(nothing to show)"
@@ -312,6 +353,10 @@ if __name__ == "__main__":
     parser.add_argument("--design-source", type=str, default=None,
                         help="Local dir OR git URL of an existing design (HTML mockups) to "
                              "REUSE — Design matches it and skips the 3-directions pick")
+    parser.add_argument("--spec", type=str, default=None,
+                        help="Path to the cumulative product spec (markdown, numbered "
+                             "sections) — seeds a coverage ledger so scope doesn't decay "
+                             "across runs")
     args = parser.parse_args()
 
     graph = build_graph()
@@ -326,4 +371,8 @@ if __name__ == "__main__":
         design_source = args.design_source
         if design_source and os.path.isdir(design_source):
             design_source = os.path.abspath(design_source)
-        run_new_feature(graph, target_repo=repo, design_source=design_source)
+        spec_path = os.path.abspath(args.spec) if args.spec else None
+        if spec_path and not os.path.isfile(spec_path):
+            parser.error(f"--spec path is not a file: {spec_path}")
+        run_new_feature(graph, target_repo=repo, design_source=design_source,
+                        spec_path=spec_path)

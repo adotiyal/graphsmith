@@ -40,12 +40,24 @@ def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True
     ledger = state.get("project_ledger")
     ledger_block = f"\n\nPROJECT HISTORY (features already built — scope this feature consistently and don't re-propose what exists):\n{ledger}" if ledger else ""
 
+    # Standing product-spec coverage (Work item B): the cumulative spec's still-unimplemented
+    # sections, so scope doesn't silently decay across runs. Root resolved from state the same
+    # way project_ledger is (target_repo == the managed project dir on managed runs). Empty
+    # when no --spec ledger exists — byte-identical to prior behavior.
+    spec_block = ""
+    _spec_root = state.get("target_repo")
+    if _spec_root:
+        from tools.spec_ledger import uncovered_block
+        _uncovered = uncovered_block(_spec_root)
+        if _uncovered:
+            spec_block = "\n\n" + _uncovered
+
     feedback = state.get("review_notes")
     feedback_block = f"\n\nCEO FEEDBACK ON THE PREVIOUS PRD (address this):\n{feedback}" if feedback else ""
 
     user_msg = f"""
 CEO Brief:
-{brief}{profile_block}{ledger_block}
+{brief}{profile_block}{ledger_block}{spec_block}
 
 {qa_ctx}{feedback_block}
 

@@ -36,3 +36,10 @@ E2E encodes user intent (from the feature request/PRD), using the kit's REAL dat
 only selector source — never invent a testid, guess a CSS class, or guess an API path. Every
 spec isolates its own state (cleanup in setup) so a shared runner IP or leftover data can't flake
 it. A known-bad oracle is worse than a missing one.
+
+## Fidelity vs contract (design-system products)
+When a selector you need doesn't exist because a design-library component exposes no testid,
+the correct resolution is a WRAPPER hook on the kit side (a testid on the element composing the
+library component) — flag that in your findings. Never accept, or push the engineer toward, a
+hand-rolled re-implementation of a library component as the way to gain a selector: that trades
+permanent visual fidelity for a test hook and is a defect (`check_ds_composition` fails it).
