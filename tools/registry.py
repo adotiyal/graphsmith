@@ -1654,6 +1654,18 @@ def resolve_kit_testids(sources: dict) -> tuple:
         static |= set(re.findall(r'testid=["\']([\w-]+)["\']', work))
         prefixes |= set(re.findall(r'data-testid=\{`([\w-]+?)\$\{', work))
         prefixes |= set(re.findall(r'testid=\{`([\w-]+?)\$\{', work))
+        # PROP-DEFAULT resolution: an element rendered as `data-testid={prop}` (a bare
+        # identifier, not a literal/template) emits the prop's DESTRUCTURING DEFAULT when
+        # the component is used bare — `function X({ testId = "activity-gallery" }) { …
+        # data-testid={testId} }` renders `activity-gallery`. The literal scans above only
+        # see quoted strings, so a default-valued testid prop was invisible and its element
+        # read as "never rendered" — a FALSE POSITIVE that failed check_testid_contract on
+        # the very common kit pattern (default testid + `data-testid={testId}`) and thrashed
+        # the engineer loop. Resolve ONLY defaults for identifiers actually bound to a
+        # data-testid, so no phantom id ever enters the additive interface contract.
+        for _ident in set(re.findall(r'data-testid=\{([A-Za-z_]\w*)\}', work)):
+            static |= set(re.findall(
+                rf'\b{re.escape(_ident)}\s*=\s*["\']([\w-]+)["\']', work))
     return static, prefixes
 
 

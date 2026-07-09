@@ -160,3 +160,44 @@ def test_lint_rejects_base_only_selector(tmp_path):
     good = registry.lint_e2e_spec('page.get_by_test_id("profile-relationship-add-friend")\n',
                                   kit_testids=static, testid_prefixes=tuple(prefixes))
     assert good == []
+
+
+# ---- prop-DEFAULT resolution (madclub P1: kit wrappers composing a DS component) ----
+# A wrapper that carries its testid as `data-testid={testId}` on a native element and takes
+# `testId = "activity-gallery"` as a DESTRUCTURING DEFAULT renders that default when used
+# bare. The flat literal scans only saw quoted strings, so this pattern read as "never
+# rendered" and failed check_testid_contract on UNCHANGED code — the false positive that
+# thrashed the P1 engineer loop. Resolution is bound to an actual data-testid usage, so a
+# default that never feeds a data-testid must NOT leak into the interface (no phantom id).
+GALLERY_DEFAULT = '''import { Gallery } from "@madclub/ui";
+export function ActivityGallery({ images, testId = "activity-gallery" }) {
+  return (
+    <div data-testid={testId}>
+      <Gallery images={images} />
+    </div>
+  );
+}
+'''
+
+
+def test_prop_default_testid_resolves():
+    static, _ = registry.resolve_kit_testids({"ActivityGallery.tsx": GALLERY_DEFAULT})
+    assert "activity-gallery" in static
+
+
+def test_prop_default_not_resolved_unless_bound_to_data_testid():
+    # `testId` never appears as `data-testid={testId}` → its default is NOT a rendered id.
+    src = 'export function X({ testId = "phantom" }) { return <div>{testId}</div>; }\n'
+    static, _ = registry.resolve_kit_testids({"X.tsx": src})
+    assert "phantom" not in static
+
+
+def test_contract_passes_for_default_valued_testid(tmp_path):
+    kit = tmp_path / "frontend" / "src" / "components" / "kit"
+    kit.mkdir(parents=True)
+    (kit / "ActivityGallery.tsx").write_text(GALLERY_DEFAULT)
+    (tmp_path / "e2e").mkdir()
+    (tmp_path / "e2e" / "test_gallery.py").write_text(
+        'def test_g(page):\n    page.get_by_test_id("activity-gallery").click()\n')
+    ok, msg = registry.check_testid_contract(str(tmp_path))
+    assert ok, msg
