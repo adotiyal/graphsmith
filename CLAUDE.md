@@ -95,6 +95,19 @@ resolves this semantically (emit `<base>-<suffix>`, suppress the bare base; HYBR
 false-positive the real input). Pinned by `tests/test_kit_testid_suffix.py`. **Rule: a kit
 testid is what an ELEMENT renders, never just a string found in the source.**
 
+**Gotcha (FIXED, prop-DEFAULT testids — madclub P1):** `resolve_kit_testids` only captured
+QUOTED testids (`data-testid="x"`, `testId="x"`), so a wrapper rendering `data-testid={testId}`
+with a DESTRUCTURING DEFAULT (`function ActivityGallery({ testId = "activity-gallery" })`) was
+invisible — its element read as "never rendered" and `check_testid_contract` FAILED on
+UNCHANGED code. Live: this false positive thrashed the P1 kit-recomposition engineer loop 3×
+(the composed wrappers `ActivityGallery`/`AdventureBreadcrumb`/`CheckoutStepper` all use this
+standard React pattern; note HEAD failed identically — it was a static blind spot, the e2e pass
+at runtime because the default kicks in). Now `resolve_kit_testids` resolves a prop default
+ONLY for an identifier actually bound to a `data-testid={ident}` (so no phantom id leaks into
+the ADDITIVE interface contract). Pinned by `tests/test_kit_testid_suffix.py`. **Rule: a bare
+`data-testid={prop}` renders the prop's default — resolve it, but only when the prop truly feeds
+a data-testid.**
+
 **Gotcha (FIXED, kit duplicate-testid across responsive layouts):** the design skill MANDATES
 dual-surface layouts (desktop table → mobile cards); a SHARED kit sub-component (e.g. a
 row-actions menu) rendered in BOTH layouts puts the SAME `data-testid` in the DOM twice (both
