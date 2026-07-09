@@ -159,6 +159,35 @@ def _integration_badges(report: str) -> str:
     return " ".join(rows) or "<span class=\"badge info\">no integration report</span>"
 
 
+def _spec_coverage_card(state: dict) -> str:
+    """Standing product-spec coverage (Work item B): "N/M sections covered" + up to 10
+    still-uncovered ids/titles. "" when no spec ledger exists (byte-identical prior
+    behavior). Self-safe — the caller also wraps, but never raise here either."""
+    try:
+        root = state.get("target_repo")
+        if not root:
+            return ""
+        from tools import spec_ledger
+        entries = spec_ledger.load_ledger(root)
+        if not entries:
+            return ""
+        done = sum(1 for e in entries if e.get("done"))
+        uncovered = [e for e in entries if not e.get("done")]
+        body = f"<p><b>{done}/{len(entries)}</b> spec sections covered.</p>"
+        if uncovered:
+            items = "".join(
+                f"<li><span class=\"badge warn\">·</span> "
+                f"{_html.escape(str(e.get('id', '')))} {_html.escape(str(e.get('title', '')))}</li>"
+                for e in uncovered[:10])
+            more = (f"<p class=\"muted\">+{len(uncovered) - 10} more</p>"
+                    if len(uncovered) > 10 else "")
+            body += (f"<p class=\"muted\">Not yet implemented — flag if this feature should "
+                     f"cover any:</p><ul>{items}</ul>{more}")
+        return f"<div class=\"card\"><h2>Standing product-spec coverage</h2>{body}</div>"
+    except Exception:
+        return ""
+
+
 def render_gate(state: dict, stage: str) -> str | None:
     """The human gate dashboard: prd (approve the PRD) or pr (the ship decision)."""
     try:
@@ -199,6 +228,8 @@ def render_gate(state: dict, stage: str) -> str | None:
                 items = "".join(f"<li><span class=\"badge warn\">!</span> {_html.escape(s)}</li>"
                                 for s in cq)
                 parts.append(f"<div class=\"card\"><h2>Code quality (advisory)</h2><ul>{items}</ul></div>")
+        # Standing product-spec coverage — shown on BOTH gates (kills cross-run scope decay).
+        parts.append(_spec_coverage_card(state))
         path = _review_dir(pid) / f"{stage}_gate.html"
         title = "PRD approval" if stage == "prd" else "Ship decision (PR gate)"
         path.write_text(_page(title, "".join(parts)), encoding="utf-8")

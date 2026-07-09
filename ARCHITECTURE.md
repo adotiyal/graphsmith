@@ -677,6 +677,39 @@ the loop.** Roadmap + rationale in `AI_NATIVE_ROADMAP.md`.
 - **Adaptive thinking** (`tools/llm.EFFORT`, OPT-IN via `LLM_THINKING=adaptive`): maps each
   tier to a reasoning-effort level on the api backend; default OFF.
 
+### 18. Design fidelity by construction + verification (2026-07-09)
+
+A real build audit showed the pipeline converges on BEHAVIOR but diverges on DESIGN: with a
+full component library installed, 47/102 kit files were hand-rolled and 31/56 exported
+components never used — right tokens, wrong brushwork — because the only design ground truth
+was a mockup the design agent generated for itself, and no gate enforced composing the
+library. Three mechanisms close that structurally:
+
+- **DS-composition gate** (`registry.detect_component_library` → `check_ds_composition`, run
+  in `design._enforce_ds_composition`, re-emit once → advisory): a kit file that doesn't
+  import the detected library and exactly matches — or PascalCase-suffix-matches (≥6 chars;
+  catches renamed forks like `AdventureActivityCard`→`ActivityCard`) — a library export fails
+  the design round with compose-or-rename guidance. Wrapper files (importing the library) are
+  always exempt. Advisory `design_parity_report` (used/total, compose vs hand-rolled, fuzzy
+  `possible re-implementations`) rides `code_quality` to the PR gate; usages of a fork never
+  count as library usage.
+- **Design-source v2** (`design_source.find_screens`/`load_story_excerpts`): imported design
+  truth can be full-document HTML, Storybook `*.stories.tsx` compositions (injected into the
+  spec/kit/mockup prompts as authoritative), or PNG screens — the first image becomes
+  `design_baseline_png`, and **design_qa compares the live app against the imported baseline**
+  (up to 3 labeled references in the one vision call) instead of the self-generated mockup.
+  Fragment html (no doctype) is not a screen.
+- **Spec-coverage ledger** (`tools/spec_ledger.py`, seeded by `--spec`): the cumulative product
+  spec's numbered sections (headings, bold ids, and inline parenthetical definitions like
+  `| Operator storefront (6.14) |`) persist in `product/spec_ledger.md`; the PM's prompt
+  carries the uncovered sections every run, both approval gates show N/M covered, and an
+  end-of-run call marks newly-covered ids. Cross-run scope decay — a spec section silently
+  never built — is now visible at every gate.
+
+The skills encode the matching mandates: COMPOSE-don't-re-implement (wrap-and-extend when
+props don't fit) in `skills/design.md`, and fidelity-vs-contract adjudication (hooks on
+wrappers, never visual forks) in `skills/engineer.md`/`skills/qa.md`.
+
 ---
 
 ## How to Add a New Agent

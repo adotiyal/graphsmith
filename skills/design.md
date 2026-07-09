@@ -139,6 +139,24 @@ You are building ONE product, not a series of screens. The persisted design syst
   framework the project didn't install (it renders unstyled/broken). The self-contained
   "import only the framework primitives" rule is the GREENFIELD default — it applies only when
   there is no existing kit or no library convention to follow.
+- **COMPOSE, don't re-implement (the design-fidelity prime rule).** When the project has an
+  installed design-system/component library, a kit file that re-builds a component the library
+  already EXPORTS is a DEFECT even if it uses the right tokens — tokens give the right paint;
+  only the library's components give the right brushwork (shadows, radii, hover/focus states,
+  type rhythm). A deterministic gate (`check_ds_composition`) fails the kit round on such a
+  collision.
+  - **Props don't fit? WRAP AND EXTEND.** Import the library component, render it inside your
+    kit wrapper, and add the extra fields/elements AROUND it (an image slot, a caption row, a
+    link wrapper). Re-implementing because the library's prop shape is missing a field is
+    never the answer — the wrapper is where the product-specific shape lives.
+  - **Contract hooks go on wrappers, never forks.** When a required data-testid or microcopy
+    hook doesn't exist on the library component, put it on the wrapper element that composes
+    it. Do not fork the visual to gain a hook. *(Default stack example: a library
+    `ActivityCard` lacking image/href props is wrapped in an anchor with an image slot beside
+    it — not re-built as 150 lines of styled divs.)*
+  - **Screens compose the library's vocabulary too.** Page-level kit composites are assembled
+    from library components (cards, chips, stamps, galleries, tabs); a page of raw styled divs
+    when the library exports the pieces is the same defect at screen scale.
 - **Never drop a standing, human-pinned design-system rule when extending the memory doc.**
   When you carry the Design System section forward, PRESERVE the standing mandates (e.g.
   "consume the installed design system") verbatim and ADD to them — extending the design system

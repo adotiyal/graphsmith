@@ -135,6 +135,30 @@ def _drive(graph, config, project_id):
         for agent, lessons in retro.items():
             for l in lessons:
                 print(f"  {agent}: {l}")
+    # Spec-coverage ledger (Work item B): mark the sections this feature covered. Best-effort
+    # like run_retro — a finished run is never broken by it.
+    try:
+        _spec_root = final.get("target_repo")
+        if _spec_root:
+            from tools import spec_ledger
+            if spec_ledger.load_ledger(_spec_root):
+                from tools.llm import call_llm
+                _summary = (final.get("feature_request") or "").strip()
+                _prd = final.get("prd_path")
+                if _prd:
+                    try:
+                        with open(_prd, "r", encoding="utf-8", errors="replace") as _f:
+                            _summary += "\n\n" + _f.read()
+                    except OSError:
+                        pass
+                _covered = spec_ledger.update_ledger(
+                    _spec_root, _summary[:6000],
+                    lambda p: call_llm("You track product-spec coverage. Return only the "
+                                       "requested JSON.", p, tier="fast"))
+                if _covered:
+                    print(f"[spec] marked covered this run: {', '.join(_covered)}")
+    except Exception:
+        pass
     # Human audit folder: every actor, discussion, decision, and why — browsable HTML.
     from tools import report_html
     audit = report_html.render_audit(final, str(trace.get().path) if trace.get() else "",
@@ -170,6 +194,13 @@ def cmd_start(graph, args):
     else:
         target_repo = args.repo
 
+    # Standing product-spec ledger (Work item B): seed/refresh coverage tracking from the
+    # cumulative spec so scope doesn't decay across runs. No-op (no ledger) without --spec.
+    spec_path = getattr(args, "spec", None)
+    if spec_path:
+        from tools import spec_ledger
+        spec_ledger.init_ledger(target_repo, spec_path)
+
     project_id = slugify(args.feature) + "-" + uuid.uuid4().hex[:6]
     initial_state: ProjectState = {
         "project_id": project_id,
@@ -185,6 +216,7 @@ def cmd_start(graph, args):
         "tech_stack": None, "tech_stack_confirmed": False, "target_repo": target_repo,
         "repo_map_path": None, "detected_stack": None, "managed_project": managed,
         "design_source": getattr(args, "design_source", None),
+        "spec_path": spec_path,
         "project_ledger": ledger or None, "test_files": [], "security_warnings": [],
         "code_files": [], "product_profile": product.load_profile() or None,
         "product_invariants": registry.extract_product_invariants(target_repo) or None,
@@ -265,6 +297,9 @@ if __name__ == "__main__":
     s = sub.add_parser("start"); s.add_argument("--feature", required=True); s.add_argument("--repo", default=None)
     s.add_argument("--design-source", default=None,
                    help="Local dir OR git URL of an existing design (HTML mockups) to REUSE")
+    s.add_argument("--spec", default=None,
+                   help="Path to the cumulative product spec (markdown, numbered sections) — "
+                        "seeds a coverage ledger so scope doesn't decay across runs")
     a = sub.add_parser("answer"); a.add_argument("--thread", required=True); a.add_argument("--text", required=True)
     ap = sub.add_parser("approve"); ap.add_argument("--thread", required=True); ap.add_argument("--feedback", default=None)
     rj = sub.add_parser("reject"); rj.add_argument("--thread", required=True); rj.add_argument("--feedback", required=True)

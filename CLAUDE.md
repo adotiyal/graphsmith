@@ -13,6 +13,8 @@ export ANTHROPIC_API_KEY=your_key_here
 python main.py                          # build/extend the SINGLE persistent project (workspace/project)
 python main.py --repo /path/to/repo     # extend an EXTERNAL repo instead
 python main.py --resume <project-id>    # resume an interrupted run
+# optional: --design-source <dir|git-url> (html/stories/png design truth)
+#           --spec <path> (cumulative product spec → coverage ledger at every gate)
 # reset the project: delete workspace/project/
 ```
 
@@ -281,6 +283,52 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
   prior-phase testid triggers the existing restore round). Figma is deferred (its MCP needs
   interactive OAuth). Pinned by `tests/test_design_source.py`. **Rule: an imported design plugs
   into the EXISTING mockup→kit path + guards — reuse the source of the mockup, not the pipeline.**
+- **Design-source v2 — Storybook stories + screen images as design truth (design-fidelity,
+  2026-07-09):** `find_screens` ingests, besides full-document `*.html` (FRAGMENT html without
+  `<!doctype`/`<html` in the head is skipped — guideline cards are not screens),
+  `*.stories.tsx/jsx` (+ bare tsx/jsx under `stories/`/`screens/`/`preview/` dirs) and
+  `*.png/jpg/webp` screens; manifest order wins, else html→image→story. No-html imports still run
+  IMPORTED mode: story excerpts (`load_story_excerpts`, strict 24000-char total) are injected into
+  the spec/kit/mockup prompts as THE AUTHORITATIVE DESIGNED COMPOSITIONS, screen images ride the
+  mockup call's vision path, the FIRST image becomes `design/mockup_baseline.png` +
+  `state["design_baseline_png"]` (up to 3 in `design_baseline_pngs`), and **design_qa compares the
+  live app against the IMPORTED baseline** (priority over rendering its own mockup.html; up to 3
+  labeled reference images in the one vision call). Tool-output dirs (`__screenshots__`,
+  `storybook-static`, `test-results`, `coverage`, …) are skipped by the scan (Playwright baselines
+  are not designs); an explicit `design_manifest.md` listing always wins. **Point --design-source
+  at a CURATED screens dir (or ship a manifest) — a repo ROOT is ambiguous by nature** (full-document
+  guideline cards legitimately count as html and outrank stories). Pinned by
+  `tests/test_design_source_v2.py`.
+  **Rule: when the product HAS designed screens, they — not a generated mockup — are the QA
+  baseline; graphsmith's own mockup is only the fallback for products with no design source.**
+- **DS-composition gate (design-fidelity, 2026-07-09):** the madclub audit found 47/102 kit files
+  hand-rolled and 31/56 library components never used — right tokens, wrong brushwork, invisible
+  to every gate. Now `registry.detect_component_library` (generic: any dependency shipping a
+  `.d.ts` barrel with ≥8 PascalCase exports; react/next/path-aliases excluded) feeds
+  `registry.check_ds_composition`: a kit file that does NOT import the library and whose
+  basename/exported name EXACTLY matches a library export — or ENDS WITH one ≥6 chars on a
+  PascalCase boundary (catches RENAMED forks: `AdventureActivityCard`→`ActivityCard`; short
+  generics like `Card`/`Icon`/`Input`/`Stars` can never fire) — FAILS the design round
+  (`design._enforce_ds_composition`, re-emit once w/ findings → advisory in MANIFEST.md, never
+  blocks). A file importing the library is always OK (wrapper exemption). Advisory
+  `registry.design_parity_report` (`parity:` in `code_quality`, shown at the PR gate) reports
+  used/total exports, compose-vs-hand-rolled counts, and a `possible re-implementations:` fuzzy
+  tail (whole-segment containment ≥5 chars) for human/vision judgment — usages of a FORK never
+  count as library usage. Pinned by `tests/test_ds_composition.py`. **Rule: COMPOSE, don't
+  re-implement — wrap-and-extend when props don't fit; contract hooks (testids) go on wrappers,
+  never on visual forks (mandated in skills/design.md + engineer.md + qa.md).**
+- **Spec-coverage ledger (design-fidelity, 2026-07-09):** kills cross-run scope decay (madclub's
+  spec §6.14 storefront silently never got built across 7 runs). `--spec <path>` on main.py /
+  live_run.py seeds `product/spec_ledger.md` via `tools/spec_ledger.py::parse_spec` —
+  deterministic, precision-biased: numbered headings, bold numbers, `Screen N —` lines AND inline
+  parenthetical definitions (`| Operator storefront (6.14) |`, `**Storefront** → … (6.14)`;
+  dotted numbers only, `(§6.2)` cross-refs skipped, heading-form wins the title on collision).
+  PM's work prompt carries the UNCOVERED sections (`uncovered_block`, beside profile/ledger
+  blocks); both approval gates render "N/M sections covered" + top uncovered; at run END
+  `update_ledger` (one fast-tier call beside `run_retro`, never raises) marks newly-covered ids.
+  Idempotent re-init preserves state. Absent `--spec` = byte-identical. Pinned by
+  `tests/test_spec_ledger.py`. **Rule: the cumulative product spec is standing context — a
+  section is either shipped, in the current scope, or VISIBLY uncovered at every gate.**
 - **HTML review layer (`tools/report_html.py`, dual-surface decision):** `.md` stays the
   canonical agent-readable artifact (token-cheap, regex-parseable); DETERMINISTIC
   templating (zero LLM) renders the human pages: `review/{prd,pr}_gate.html`
@@ -515,10 +563,11 @@ CEO → Triage ─(feature)→ PM → [prd_gate] → Surveyor → Design → cri
 | `graph/graph.py` | **Only file that knows agent order** — all edges and routing defined here |
 | `tools/llm.py` | Single LLM gateway — `call_llm(system, user_msg, tier)`; **`call_structured(...,  schema, default)`** = validated structured control-plane decisions (§4.1) |
 | `tools/file_io.py` | All disk I/O — `read_artifact`, `write_artifact`, `load_prompt`, `load_skill` |
-| `tools/registry.py` | Deterministic tools — linter, **toolchain-detecting** test runner (`detect_toolchains`/`run_project_tests`: pytest+vitest per layer), validators, **`extract_product_invariants`** (static models/routers → standing product context), **code-quality layer** (`format_code`, `code_quality_report`, `check_frontend_quality_tooling`, **`check_dependencies`** = dependency lock §2.3/I7, **`measure_coverage`**/**`check_quality_gate`** = opt-in soft gate §2.1/2.2) |
+| `tools/registry.py` | Deterministic tools — linter, **toolchain-detecting** test runner (`detect_toolchains`/`run_project_tests`: pytest+vitest per layer), validators, **`extract_product_invariants`** (static models/routers → standing product context), **code-quality layer** (`format_code`, `code_quality_report`, `check_frontend_quality_tooling`, **`check_dependencies`** = dependency lock §2.3/I7, **`measure_coverage`**/**`check_quality_gate`** = opt-in soft gate §2.1/2.2), **design-fidelity layer** (`detect_component_library` + **`check_ds_composition`** = compose-don't-reimplement gate incl. renamed-fork suffix match, `design_parity_report` = advisory `parity:` in code_quality) |
 | `tools/qa_utils.py` | Bidirectional Q&A — `run_with_qa()`, `consult()`, `format_qa_context()`, **`product_invariants_block`** (injects code-derived invariants into architect/test_author/engineer/qa) |
 | `tools/repo.py` | Read-only existing-codebase access for extend mode (list/grep/read/map + guarded write) |
-| `tools/design_source.py` | External design source (Change 1) — `resolve` (local dir or shallow git clone), `find_mockups`/`load_primary_mockup` (manifest else shallowest `*.html`). Feeds `design._do_imported` to REUSE an existing design + skip the 3-directions pick; best-effort, never raises |
+| `tools/design_source.py` | External design source — `resolve` (local dir or shallow git clone), `find_mockups`/`load_primary_mockup` (html, legacy), **v2: `find_screens` (typed html/image/story entries; fragment-html skipped) + `load_story_excerpts` (strict-capped Storybook compositions)**. Feeds `design._do_imported` to REUSE an existing design + skip the 3-directions pick; best-effort, never raises |
+| `tools/spec_ledger.py` | Spec-coverage ledger — `parse_spec` (numbered headings/bold/inline-parenthetical section ids), `init/load/save_ledger` (`product/spec_ledger.md`), `uncovered_block` (PM standing context), `update_ledger` (end-of-run coverage marking, never raises). Seeded by `--spec`; surfaced at both gates |
 | `tools/codegen.py` | I1/I17 — ALL code-writing agents (engineer, test_author, qa-e2e, design-kit) change files via REAL tools on a staging copy + guarded sync-back. `generate_in_domain` = inverted guard (agent may only touch its own domain; Read-before-write prevents blind overwrites that dropped exports/self-deleted modules) |
 | `tools/learnings.py` | Cross-run learning — `load_learnings`/`record_learning`/`augment_system` (2.2); **two tiers**: gitignored LOCAL `learnings/<agent>.md` + COMMITTED `learnings/shared/<agent>.md` (`load_shared_learnings`/`promote_learning` + `python -m tools.learnings list`/`promote` CLI = human-gated graduation of GENERIC lessons into the harness) |
 | `tools/contract.py` | Feature Contract spine — parse PRD AC ids (`parse_acs`), extract `# covers:` AC refs, deterministic `coverage` (every AC tested, every UI AC has an e2e) |

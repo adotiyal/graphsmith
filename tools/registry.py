@@ -522,14 +522,20 @@ def _check_python_deps(root: Path, files) -> list:
             f"requirements.txt/pyproject — {shown} (declare them or drop the import)"]
 
 
+def _frontend_pkg_json(root: Path) -> Path | None:
+    """The project's frontend package.json — root/package.json or the shallowest
+    root/<sub>/package.json (e.g. a split backend/ + frontend/ layout). None if absent."""
+    return next((c for c in [root / "package.json", *sorted(root.glob("*/package.json"))]
+                 if c.is_file()), None)
+
+
 def _check_js_deps(root: Path, files) -> list:
     exts = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
     js = [Path(f) for f in (files or [])
           if str(f).endswith(exts) and Path(f).is_file() and not _is_test_path(Path(f))]
     if not js:
         return []
-    pkg = next((c for c in [root / "package.json", *sorted(root.glob("*/package.json"))]
-                if c.is_file()), None)
+    pkg = _frontend_pkg_json(root)
     if pkg is None:
         return []                                       # no manifest yet — nothing to check against
     declared = {_norm_dist(d) for d in
@@ -563,6 +569,309 @@ def check_dependencies(project_dir: str, files=None) -> list:
     except Exception:
         pass
     return findings
+
+
+# ── Design-system COMPOSITION layer (design-fidelity hardening) ───────────────
+# A live build hand-rolled 47/102 kit files, re-implementing 31 components the product's
+# installed component library (@madclub/ui) already exported — right tokens, wrong
+# composition, and nothing detected it. This layer is the deterministic ground truth:
+# detect the installed library generically (no hardcoded package name), then GATE the
+# design kit against re-implementing what the library already ships. Mirrors the
+# dependency-lock / check_kit_wiring discipline: precision over noise (a missed flag beats
+# a false one), a same-file library import EXEMPTS a collision (it's a wrapper, not a fork),
+# advisory parity metric folds into code_quality, and every helper NEVER raises. Byte-
+# identical behavior when no component library is installed (every check no-ops).
+# TWO-TIER matching (the real drift RENAMES its forks — AdventureActivityCard re-implements
+# ActivityCard — so exact-only matching is trivially evaded): the GATE flags exact matches
+# AND trailing PascalCase-segment SUFFIX matches ≥ _SUFFIX_MIN_LEN chars; the fuzzier
+# whole-segment CONTAINMENT tail (≥ _CONTAIN_MIN_LEN, e.g. RatingInput ⊃ Input) is
+# advisory-only in the parity report — generic short names (Card/Icon/Input) never gate. ───
+
+_MIN_LIB_EXPORTS = 8       # a barrel must export at least this many components to count
+_SUFFIX_MIN_LEN = 6        # gate: a renamed-fork suffix match needs an export this long
+_CONTAIN_MIN_LEN = 5       # advisory: possible-reimplementation containment cutoff
+_LIB_NEVER = {"react", "react-dom", "next"}   # frameworks, never "the component library"
+
+
+def _dts_component_exports(dts_text: str) -> set:
+    """PascalCase VALUE exports from a library's `.d.ts` barrel — i.e. component names.
+    Handles `export { A, B, type C as D }` blocks (drops `type ` items; an `X as Y`
+    re-export is exported as Y) and `declare function X(` / `declare const X:` forms (with
+    or without a leading `export`). Keeps only PascalCase identifiers, so hooks (`useX`) and
+    lowercase/constant names drop out; ThemeProvider-style providers ARE PascalCase and are
+    kept. Pure; never raises on odd input."""
+    names = set()
+    for block in re.findall(r"export\s*\{([^}]*)\}", dts_text, re.DOTALL):
+        for raw in block.split(","):
+            item = raw.strip()
+            if not item or item.startswith("type "):
+                continue
+            names.add(re.split(r"\s+as\s+", item)[-1].strip())     # `X as Y` → Y
+    for pat in (r"(?:export\s+)?declare\s+function\s+([A-Za-z_]\w*)\s*[(<]",
+                r"(?:export\s+)?declare\s+const\s+([A-Za-z_]\w*)\s*[:=]"):
+        names |= set(re.findall(pat, dts_text))
+    return {n for n in names if re.match(r"[A-Z][A-Za-z0-9]*$", n)}
+
+
+def _library_dts(pkg_dir: Path, pkg_json: dict) -> Path | None:
+    """The barrel typings for an installed package: package.json `types`/`typings`, else
+    dist/index.d.ts, else index.d.ts. None when none exists on disk."""
+    for key in ("types", "typings"):
+        rel = pkg_json.get(key)
+        if isinstance(rel, str) and rel.strip():
+            rel = rel[2:] if rel.startswith("./") else rel
+            cand = pkg_dir / rel
+            if cand.is_file():
+                return cand
+    for rel in ("dist/index.d.ts", "index.d.ts"):
+        cand = pkg_dir / rel
+        if cand.is_file():
+            return cand
+    return None
+
+
+def detect_component_library(project_dir: str) -> dict | None:
+    """Locate the project's installed UI COMPONENT LIBRARY generically (stack-agnostic — no
+    hardcoded package name). A library is a runtime `dependencies` entry (NOT devDependencies)
+    whose installed package under node_modules ships a component barrel: a `.d.ts` (its
+    package.json `types`/`typings`, else dist/index.d.ts, else index.d.ts) exporting
+    ≥_MIN_LIB_EXPORTS PascalCase VALUE names. Precision-biased ranking: prefer names matching
+    /ui|design|component/i, then the most exports; react/react-dom/next and first-party path
+    aliases (`@/`, `~/`) are never libraries. Returns {"name", "exports": set[str]} or None
+    (no library / missing node_modules / unreadable files → None). Never raises."""
+    try:
+        root = Path(project_dir)
+        pkg = _frontend_pkg_json(root)
+        if pkg is None:
+            return None
+        data = json.loads(pkg.read_text(encoding="utf-8", errors="replace"))
+        deps = data.get("dependencies")
+        if not isinstance(deps, dict):
+            return None
+        node_modules = pkg.parent / "node_modules"
+        candidates = []            # (name-match score, n_exports, name, exports)
+        for name in deps:
+            if name in _LIB_NEVER or name.startswith(("@/", "~/")):
+                continue
+            pkg_dir = node_modules / Path(*name.split("/"))     # scoped: @scope/pkg
+            try:
+                sub = json.loads((pkg_dir / "package.json")
+                                 .read_text(encoding="utf-8", errors="replace"))
+            except (OSError, ValueError):
+                sub = {}
+            dts = _library_dts(pkg_dir, sub if isinstance(sub, dict) else {})
+            if dts is None:
+                continue
+            exports = _dts_component_exports(dts.read_text(encoding="utf-8", errors="replace"))
+            if len(exports) < _MIN_LIB_EXPORTS:
+                continue
+            score = 1 if re.search(r"ui|design|component", name, re.I) else 0
+            candidates.append((score, len(exports), name, exports))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+        _score, _n, name, exports = candidates[0]
+        return {"name": name, "exports": exports}
+    except Exception:
+        return None
+
+
+def _library_import_re(libname: str) -> re.Pattern:
+    """Matches `from "<lib>"` and subpath imports `from "<lib>/x"` (a `-`/word boundary after
+    the name, so a look-alike package `<lib>-icons` does NOT count as importing <lib>)."""
+    return re.compile(r"""from\s+["']""" + re.escape(libname) + r"""(?=["']|/)""")
+
+
+def _pascal_suffix_match(name: str, exports: set) -> str | None:
+    """GATE tier for RENAMED forks: the longest library export (≥ _SUFFIX_MIN_LEN chars)
+    that `name` ENDS WITH on a PascalCase boundary — the char before the suffix must be
+    lowercase (a lowercase-to-uppercase boundary), so the export is a whole trailing segment
+    run: `AdventureActivityCard` matches export `ActivityCard`, but `MyCardigan` can never
+    match `Card` (too short AND mid-segment). Exact equality is the caller's exact tier, not
+    this one. None when nothing matches. Pure."""
+    best = None
+    for e in exports:
+        if len(e) < _SUFFIX_MIN_LEN or len(name) <= len(e) or not name.endswith(e):
+            continue
+        if name[-len(e) - 1].islower() and (best is None or len(e) > len(best)):
+            best = e
+    return best
+
+
+def _pascal_contains(name: str, exports: set) -> str | None:
+    """ADVISORY tier (never gates): the longest export (≥ _CONTAIN_MIN_LEN chars) appearing
+    in `name` as a WHOLE PascalCase segment run — starts at the string start or after a
+    lowercase char, ends at the string end or before an uppercase char. `RatingInput` ⊃
+    `Input`; `Starship` ⊅ `Stars` (the segment continues lowercase). Catches the fuzzier
+    tail for a human/vision pass to judge. None when nothing matches. Pure."""
+    best = None
+    for e in exports:
+        if len(e) < _CONTAIN_MIN_LEN or e == name:
+            continue
+        i = name.find(e)
+        while i != -1:
+            j = i + len(e)
+            if (i == 0 or name[i - 1].islower()) and (j == len(name) or name[j].isupper()):
+                if best is None or len(e) > len(best):
+                    best = e
+                break
+            i = name.find(e, i + 1)
+    return best
+
+
+def check_ds_composition(project_dir: str, kit_files: list) -> tuple[bool, str]:
+    """THE GATE (design-fidelity): a design-kit file must COMPOSE the installed component
+    library, never RE-IMPLEMENT a component the library already exports (a visual fork the
+    engineer can't fix — the kit is design-owned). For each kit .tsx/.jsx file that does NOT
+    import the detected library, a violation is: its basename OR any exported component name
+    (1) EXACTLY matches a library export, or (2) ENDS WITH one ≥ _SUFFIX_MIN_LEN chars on a
+    PascalCase boundary (the renamed-fork tier — a live kit evaded exact matching by naming
+    its fork AdventureActivityCard). A file that imports the library is ALWAYS ok (it's a
+    wrapper — mirrors check_kit_wiring's same-file-import exemption). No library detected /
+    no kit files → (True, skip note). Returns (ok, message-with-actionable-guidance). Never
+    raises."""
+    if not kit_files:
+        return True, "ds-composition: no kit files — skipped"
+    lib = detect_component_library(project_dir)
+    if not lib:
+        return True, "ds-composition: no component library detected — skipped"
+    libname, exports = lib["name"], lib["exports"]
+    root = Path(project_dir)
+    import_re = _library_import_re(libname)
+    violations = []
+    for k in kit_files:
+        p = Path(k) if Path(k).is_absolute() else root / k
+        if p.suffix not in (".tsx", ".jsx"):
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if import_re.search(text):                    # wrapper — always ok
+            continue
+        names = {Path(k).stem} | _kit_component_names(text)
+        collide = sorted(names & exports)
+        if collide:
+            comp = collide[0]
+            violations.append(
+                f'kit/{Path(k).name} re-implements {libname}\'s {comp} — compose it: '
+                f'import {{ {comp} }} from "{libname}" and wrap/extend it (add wrappers '
+                f'AROUND it for extra fields/testids), do not re-build it')
+            continue
+        # Renamed-fork tier: exact-only matching is trivially evaded — the real drift
+        # prefixed its forks (AdventureActivityCard ⊃ ActivityCard). A trailing whole-
+        # segment suffix ≥ _SUFFIX_MIN_LEN keeps precision: generic short names
+        # (Card/Icon/Input/Stars) are below the cutoff by design and never fire the gate.
+        hits = {_pascal_suffix_match(n, exports) for n in names} - {None}
+        if hits:
+            comp = max(hits, key=len)                 # the most specific export matched
+            violations.append(
+                f"kit/{Path(k).name} looks like a renamed re-implementation of {libname}'s "
+                f"{comp} (name suffix match) — compose {comp} (wrap and extend) or, if this "
+                f"is genuinely a different component, rename it so it doesn't shadow the "
+                f"library's")
+    if violations:
+        return False, ("DS COMPOSITION — these kit files re-implement components the "
+                       f"installed library ({libname}) already exports; compose (wrap+extend) "
+                       "instead of forking the visual:\n"
+                       + "\n".join(f"- {v}" for v in violations))
+    return True, f"ds-composition ok: kit composes {libname} (no re-implementations)"
+
+
+def _kit_dir(root: Path) -> Path | None:
+    """The design-owned kit directory — the default stack's frontend/src/components/kit,
+    else the shallowest `components/kit` anywhere (flat layouts). None if there is none."""
+    primary = root / "frontend" / "src" / "components" / "kit"
+    if primary.is_dir():
+        return primary
+    for p in sorted(root.rglob("kit")):
+        if p.is_dir() and p.parent.name == "components" \
+                and not (set(p.parts) & _KIT_SKIP_DIRS):
+            return p
+    return None
+
+
+def _library_exports_used(root: Path, libname: str, exports: set) -> set:
+    """Which library exports are CONSUMED under the frontend source tree: named-imported
+    from the library (`import { A, B } from "<lib>"`) OR rendered as a JSX tag (`<Export`)
+    in a file wired to the kit barrel or the library. The import-only count undercounts —
+    kit barrels re-export library components (`export { Card } from "<lib>"`), so a page
+    importing the kit and rendering `<Card>` never import-mentions the library (real repo:
+    17/56 by imports vs 25/56 JSX-level). Single pass; prunes dep/build dirs."""
+    src = root / "frontend" / "src"
+    base = src if src.is_dir() else root
+    named_re = re.compile(r"""import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']"""
+                          + re.escape(libname) + r"""(?=["']|/)""")
+    # same pattern as check_kit_wiring's kit-import matcher (deep + barrel imports)
+    kit_import_re = re.compile(r"""from\s+['"][^'"]*\bkit(?:/|['"])""")
+    jsx_tag_re = re.compile(r"<([A-Z][A-Za-z0-9]*)\b")
+    lib_import_re = _library_import_re(libname)
+    used = set()
+    for f in base.rglob("*"):
+        if f.suffix not in (".tsx", ".ts", ".jsx", ".js") or (set(f.parts) & _KIT_SKIP_DIRS):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for block in named_re.findall(text):
+            for raw in block.split(","):
+                nm = re.split(r"\s+as\s+", raw.replace("type ", "").strip())[0].strip()
+                if nm in exports:
+                    used.add(nm)
+        if kit_import_re.search(text) or lib_import_re.search(text):
+            used |= set(jsx_tag_re.findall(text)) & exports
+    return used
+
+
+def design_parity_report(project_dir: str) -> str:
+    """ADVISORY parity metric (never fails anything) folded into the engineer's code_quality
+    with a `parity:` label — the design-fidelity companion to the composition gate. Detects
+    the library, scans the kit dir, and reports: exported components actually USED under the
+    frontend src (imports + JSX tags in kit/library-wired files), kit files that COMPOSE the
+    library vs are HAND-ROLLED (no library import), the hand-rolled files whose name/export
+    collides with a library export, and the fuzzier POSSIBLE re-implementations (whole-
+    segment name containment ≥ _CONTAIN_MIN_LEN — advisory-only, for a human/vision pass).
+    "" when no library. Never raises."""
+    try:
+        root = Path(project_dir)
+        lib = detect_component_library(project_dir)
+        if not lib:
+            return ""
+        libname, exports = lib["name"], lib["exports"]
+        kit_dir = _kit_dir(root)
+        kit_files = (sorted(kit_dir.glob("*.tsx")) + sorted(kit_dir.glob("*.jsx"))) \
+            if kit_dir else []
+        import_re = _library_import_re(libname)
+        compose = handrolled = 0
+        colliding = set()
+        possible = []                     # renamed/fuzzy forks: "<file-stem>→<Export>"
+        for p in kit_files:
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if import_re.search(text):
+                compose += 1
+                continue
+            handrolled += 1
+            exact = ({p.stem} | _kit_component_names(text)) & exports
+            if exact:
+                colliding |= exact
+                continue
+            hit = _pascal_contains(p.stem, exports)
+            if hit:
+                possible.append(f"{p.stem}→{hit}")
+        used = _library_exports_used(root, libname, exports)
+        head = (f"parity: {libname} — {len(used)}/{len(exports)} exported components used; "
+                f"kit {compose} compose / {handrolled} hand-rolled")
+        if colliding:
+            shown = sorted(colliding)
+            head += ("; hand-rolled colliding with exports: " + ", ".join(shown[:8])
+                     + (" …" if len(shown) > 8 else ""))
+        if possible:
+            head += ("; possible re-implementations: " + ", ".join(possible[:10])
+                     + (f" +{len(possible) - 10} more" if len(possible) > 10 else ""))
+        return head
+    except Exception:
+        return ""
 
 
 # ── Code-quality SOFT GATE (§2.1/2.2) — OPT-IN, default OFF ──────────────────

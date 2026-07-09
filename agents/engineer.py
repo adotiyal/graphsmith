@@ -25,8 +25,8 @@ from tools.llm import call_llm
 from tools.file_io import load_prompt, load_skill, read_artifact, write_artifact, code_root
 from tools.registry import (check_kit_wiring, run_linter, run_project_tests, scan_security,
                             format_code, code_quality_report, check_frontend_quality_tooling,
-                            check_dependencies, quality_gate_level, measure_coverage,
-                            check_quality_gate, COVERAGE_FLOOR)
+                            check_dependencies, design_parity_report, quality_gate_level,
+                            measure_coverage, check_quality_gate, COVERAGE_FLOOR)
 from tools import codegen, repo as repo_tools
 from tools.learnings import augment_system
 from tools.qa_utils import (run_with_qa, work_call, format_qa_context,
@@ -265,6 +265,11 @@ Rules:
     code_quality = (code_quality_report(project_dir, written)
                     + check_frontend_quality_tooling(project_dir)
                     + check_dependencies(project_dir, written))
+    # Design-fidelity parity (advisory, never blocks): how much of the installed component
+    # library the kit actually composes vs hand-rolls. "" when no component library exists.
+    parity = design_parity_report(project_dir)
+    if parity:
+        code_quality.append(parity)
 
     # §2.1/2.2 code-quality soft gate — OPT-IN via QUALITY_GATE, DEFAULT OFF (no change).
     # report (or block): measure line coverage in a SEPARATE Docker run and surface it

@@ -23,7 +23,13 @@ docker ps
 # 4. Run — interactive (you answer gates/questions at the terminal)
 python main.py                          # build/extend the SINGLE persistent project
 python main.py --repo /path/to/repo     # extend an EXTERNAL repo instead
-python main.py --design-source <dir|git-url>   # REUSE an existing design (HTML mockups)
+python main.py --design-source <dir|git-url>   # REUSE an existing design (HTML mockups,
+                                        #   Storybook *.stories.tsx, or PNG screens — the
+                                        #   imported screens become the design-QA baseline).
+                                        #   Point at a CURATED screens dir or ship a
+                                        #   design_manifest.md; tool-output dirs are skipped
+python main.py --spec <path>            # cumulative product spec → coverage ledger: uncovered
+                                        #   sections shown to the PM and at every approval gate
 python main.py --resume <project-id>    # resume an interrupted run
 # reset the project: rm -rf workspace/project
 ```
@@ -78,7 +84,12 @@ You (CEO input)
                        designs from discovery (users, brand, job-to-be-done) using your
                        product profile; proposes THREE design directions with rationale.
                        OR, with --design-source <dir|git-url>, REUSES an existing design
-                       (HTML mockups): matches it and skips the choice below
+                       (HTML mockups, Storybook stories, or PNG screens): matches it,
+                       skips the choice below, and design-QA compares the live app to
+                       YOUR screens. When the project ships a component library, a
+                       deterministic gate (check_ds_composition) forces the kit to
+                       COMPOSE it — hand-rolled or renamed re-implementations of
+                       exported components fail the design round
   → ✋ Design choice    you open review/design_options.html and pick A, B or C —
                        the winner becomes THE design and drives the component kit
                        (skipped when a design source is reused)
