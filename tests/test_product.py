@@ -25,6 +25,32 @@ def test_stack_save_load(product_root):
     assert "FastAPI" in product.load_stack()
 
 
+# ── P6-dogfood hardening: truncation caps must fit real specs/design-memory ──────────────
+def test_design_system_over_old_6000_cap_loads_untruncated(product_root):
+    # Gap 3: the design-system memory cap was raised 6000→16000 because a mature product's
+    # memory (the madclub run's was 8.4KB) had its TAIL (newest mandates) dropped at 6000.
+    body = "## Tokens\n" + ("token: x\n" * 900) + "\nTAIL_MANDATE: compose the installed DS"
+    assert 6000 < len(body) < 16000
+    product.save_design_system(body)
+    loaded = product.load_design_system()
+    assert "TAIL_MANDATE" in loaded            # would have been tail-dropped under the old 6000 cap
+    assert product.MAX_DESIGN_SYSTEM_CHARS >= 16000
+
+
+def test_design_spec_read_untruncated_for_a_large_feature_spec(tmp_path):
+    # Gap 2: a 30KB feature spec was head-sliced (engineer 16000 / architect default 24000) so
+    # the tail — carrying the console-nav wiring — was lost. Both now read it near-untruncated.
+    from agents.engineer import DESIGN_SPEC_CAP
+    from tools.file_io import read_artifact
+    spec = tmp_path / "design_spec.md"
+    body = "# Spec\n" + ("a design detail line\n" * 1500) + "\nCONSOLE_NAV_WIRING at the tail"
+    assert len(body) > 24000
+    spec.write_text(body, encoding="utf-8")
+    got = read_artifact(str(spec), DESIGN_SPEC_CAP)
+    assert "CONSOLE_NAV_WIRING at the tail" in got   # dropped under the old 16000/24000 caps
+    assert DESIGN_SPEC_CAP >= 30000
+
+
 # ── C6: pinned design-system tier — human-authored mandates the agent can't rewrite ──────
 def test_design_system_absent_pinned_is_exact_prior_behavior(product_root):
     assert product.load_design_system() == ""
