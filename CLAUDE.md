@@ -108,6 +108,35 @@ the ADDITIVE interface contract). Pinned by `tests/test_kit_testid_suffix.py`. *
 `data-testid={prop}` renders the prop's default — resolve it, but only when the prop truly feeds
 a data-testid.**
 
+**Gotcha (FIXED, P6-dogfood hardening — 5 gaps from a live full-lane feature run):** driving the
+full lane on a real feature (the madclub operator storefront) surfaced 5 weaknesses; the
+engineer BUILT the whole feature but the engineer⟷QA loop couldn't converge. Fixes:
+1. **Brittle test-author STATIC-GREP oracles** (biggest): the `test_author` wrote source-grep
+   contract tests a CORRECT implementation couldn't satisfy — grepping for a LITERAL testid that
+   is TEMPLATED (`operator-nav-${key}`), an over-narrow `href:`-colon regex that misses JSX
+   `href=`, and the WRONG file (page vs the container that renders it). The engineer can't edit
+   tests → non-convergence. `skills/test_author.md` now mandates assert-BEHAVIOUR-not-one-literal
+   for static/source oracles (templated testids, all href syntaxes, the actual rendering surface).
+2. **Design-spec truncation propagated:** `architect` read the design spec at the default 24000
+   (`agents/architect.py`) and the engineer at `DESIGN_SPEC_CAP=16000` — a 30KB feature spec lost
+   its TAIL (the console-nav wiring). Both now read it effectively untruncated (40000). The spec is
+   a build CONTRACT like the manifest.
+3. **`design_system.md` cap 6000→16000** (`tools/product.py`) — a mature product's design-system
+   memory exceeds 6KB and the tail (newest mandates) was dropped.
+4. **Protected-kit friction:** the engineer needed to wire `/operator/storefront` into the
+   design-owned `OperatorShell` nav but its skill said "NEVER modify ANY kit file", so it left a
+   `cast` hack + an unreachable nav. Its TOOLS only protect the DESIGN-EMITTED files, so the rule
+   now matches: minimal ADDITIVE wiring (register a nav section/route/slot) to a pre-existing,
+   non-design-owned kit file is allowed; rewriting visuals / a design-emitted component is not.
+5. **Interface-additive gate mis-flagged a testid MOVE as a DROP:** P3 moved `share-button-club`
+   from the kit into `<ShareEntity>` (a non-kit wrapper); `check_interface_additive` (kit-scoped)
+   saw it "dropped" and forced the engineer to re-add dead fallback code. It now takes
+   `app_testids` (`registry.app_rendered_testids` — every testid rendered ANYWHERE in
+   frontend/src); a testid still app-rendered is not a drop. Pinned by `tests/test_interface_contract.py`.
+**Rule: a full-lane feature run stresses the WHOLE pipeline — truncation caps must fit real specs,
+static oracles must assert behaviour not one literal, protection must distinguish design-owned from
+merely-existing, and a MOVED interface guarantee is not a dropped one.**
+
 **Gotcha (FIXED, kit duplicate-testid across responsive layouts):** the design skill MANDATES
 dual-surface layouts (desktop table → mobile cards); a SHARED kit sub-component (e.g. a
 row-actions menu) rendered in BOTH layouts puts the SAME `data-testid` in the DOM twice (both

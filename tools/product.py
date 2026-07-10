@@ -59,7 +59,10 @@ def save_profile(text: str) -> str:
 # Written by the Design agent on the first UI feature and READ + EXTENDED on every
 # later one, so successive features feel like the same product (no design disconnect).
 
-MAX_DESIGN_SYSTEM_CHARS = 6000
+# Raised 6000→16000 (matches MAX_SKILL_CHARS): a mature product's design-system memory
+# (tokens + full component inventory + UX patterns + microcopy voice) legitimately exceeds
+# 6KB — the P6/madclub run's was 8.4KB and the TAIL (newest mandates) was being dropped.
+MAX_DESIGN_SYSTEM_CHARS = 16000
 
 
 def _design_system_path():

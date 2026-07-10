@@ -1806,11 +1806,18 @@ def extract_product_invariants(project_root, cap: int = MAX_PRODUCT_INVARIANTS_C
 
 
 def check_interface_additive(prior_text: str, cur_testids: set, cur_prefixes: set,
-                             cur_micro: set) -> tuple:
+                             cur_micro: set, app_testids: set = None) -> tuple:
     """Compare the current kit interface to the persisted contract. Returns
     (ok, dropped_message, merged_contract_text). A DROP of any prior testid/prefix/
-    microcopy is a regression (prior-phase e2e specs depend on it) → not ok."""
+    microcopy is a regression (prior-phase e2e specs depend on it) → not ok.
+
+    `app_testids` (optional) = every testid rendered ANYWHERE in frontend/src, not just the
+    kit. A prior kit testid that a later phase MOVED into a non-kit wrapper (e.g. P3 moved
+    `share-button-club` out of ClubPage into <ShareEntity>) is still rendered by the app, so
+    the e2e guarantee holds — pass app_testids so the gate doesn't false-flag the move as a
+    drop and force the engineer to re-add dead fallback code (the P6 dogfood regression)."""
     p_ids, p_prefixes, p_micro = parse_interface_contract(prior_text)
+    app_testids = app_testids or set()
     dropped = []
     for t in sorted(p_ids - cur_testids):
         # A prior BARE base (e.g. 'profile-relationship') is NOT a regression once the
@@ -1819,6 +1826,9 @@ def check_interface_additive(prior_text: str, cur_testids: set, cur_prefixes: se
         # guarantee lives on in the suffixed ids the e2e specs actually use. (Phase-2
         # suffix-renderer fix left this base in the persisted contract — don't false-flag.)
         if any(c.startswith(t + "-") for c in cur_testids):
+            continue
+        # MOVED out of the kit into a non-kit wrapper but still rendered by the app → not a drop.
+        if t in app_testids:
             continue
         dropped.append(f"data-testid '{t}'")
     for t in sorted(p_prefixes - cur_prefixes):
@@ -1833,6 +1843,22 @@ def check_interface_additive(prior_text: str, cur_testids: set, cur_prefixes: se
                + "\n".join(f"- {d}" for d in dropped))
         return False, msg, merged
     return True, f"interface additive ok ({len(cur_testids)} testids, {len(cur_micro)} microcopy)", merged
+
+
+def app_rendered_testids(project_dir: str) -> set:
+    """Every static data-testid rendered ANYWHERE in the app's frontend/src (kit AND non-kit
+    components), resolved via resolve_kit_testids. The interface-additive gate uses this to
+    recognise a testid MOVED out of the kit into a wrapper (still app-rendered = not dropped),
+    so a legit refactor doesn't force the engineer to re-add dead fallback code."""
+    root = Path(project_dir)
+    src = root / "frontend" / "src"
+    if not src.is_dir():
+        return set()
+    files = list(src.rglob("*.tsx")) + list(src.rglob("*.ts"))
+    sources = {str(f): f.read_text(encoding="utf-8", errors="replace") for f in files
+               if "node_modules" not in f.parts and ".next" not in f.parts}
+    static, _prefixes = resolve_kit_testids(sources)
+    return static
 
 
 def check_kit_wiring(project_dir: str, kit_files: list) -> tuple[bool, str]:

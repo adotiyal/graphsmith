@@ -56,6 +56,28 @@ def test_dropped_testid_is_regression(tmp_path):
     assert {"profile-display-name", "profile-bio"} <= pids
 
 
+def test_moved_testid_is_not_a_regression():
+    # P6 dogfood: a prior KIT testid MOVED out of the kit into a non-kit wrapper
+    # (share-button-club → rendered by <ShareEntity>) is still app-rendered, so it is NOT a
+    # drop when app_testids is supplied — the gate must not force the engineer to re-add dead
+    # fallback code. Without app_testids, a genuine drop still (correctly) fails.
+    prior = registry._render_interface_contract({"share-button-club", "club-name"}, set(), set())
+    ok, msg, _ = registry.check_interface_additive(
+        prior, {"club-name"}, set(), set(), app_testids={"share-button-club", "club-name"})
+    assert ok, msg
+    ok2, msg2, _ = registry.check_interface_additive(prior, {"club-name"}, set(), set())
+    assert not ok2 and "share-button-club" in msg2
+
+
+def test_app_rendered_testids_scans_non_kit_components(tmp_path):
+    comp = tmp_path / "frontend" / "src" / "components"
+    comp.mkdir(parents=True)
+    (comp / "ShareEntity.tsx").write_text(
+        'export function S(){ return <span data-testid="share-button-club" /> }')
+    ids = registry.app_rendered_testids(str(tmp_path))
+    assert "share-button-club" in ids
+
+
 def test_first_run_no_prior_is_ok(tmp_path):
     ok, msg, merged = registry.check_interface_additive("", {"a"}, set(), {"X"})
     assert ok and "a" in merged

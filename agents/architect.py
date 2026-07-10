@@ -109,7 +109,10 @@ def _do_work(state: dict, qa_log: list, rounds: dict, allow_clarify: bool = True
     system = augment_system(f"{identity}\n\n{skill}" if skill else identity, "architect")
 
     prd = read_artifact(state["prd_path"])
-    design = read_artifact(state["design_path"]) if state.get("design_path") else "No design spec."
+    # Read the design spec effectively untruncated (40000 ≈ 10K tokens): the default 24000 cap
+    # head-sliced the 30KB P6 storefront spec, so the architect wrote a tech spec MISSING the
+    # tail (the console-nav wiring), which then propagated to the engineer. It's a build contract.
+    design = read_artifact(state["design_path"], 40000) if state.get("design_path") else "No design spec."
     qa_ctx = format_qa_context(qa_log, "architect")
     stack = state.get("tech_stack") or DEFAULT_STACK
 
