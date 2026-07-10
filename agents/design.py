@@ -773,7 +773,11 @@ def _enforce_interface_additive(state: dict, reemit) -> None:
         if (kit_dir / "MANIFEST.md").exists() else ""
     ids, prefixes, micro = registry.extract_kit_interface(kit_dir, manifest)
     prior = product.load_interface_contract()
-    ok, msg, merged = registry.check_interface_additive(prior, ids, prefixes, micro)
+    # App-wide rendered testids — so a prior kit testid MOVED into a non-kit wrapper (P3:
+    # share-button-club → <ShareEntity>) isn't false-flagged as dropped (the P6 dogfood
+    # forced the engineer to re-add dead fallback code to appease this gate).
+    app_ids = registry.app_rendered_testids(code_root(state))
+    ok, msg, merged = registry.check_interface_additive(prior, ids, prefixes, micro, app_ids)
     if not ok:
         from tools.learnings import emit_feedback
         emit_feedback("design", "interface_regression", msg)
@@ -783,7 +787,8 @@ def _enforce_interface_additive(state: dict, reemit) -> None:
         manifest = (kit_dir / "MANIFEST.md").read_text(encoding="utf-8", errors="replace") \
             if (kit_dir / "MANIFEST.md").exists() else ""
         ids, prefixes, micro = registry.extract_kit_interface(kit_dir, manifest)
-        ok, msg, merged = registry.check_interface_additive(prior, ids, prefixes, micro)
+        app_ids = registry.app_rendered_testids(code_root(state))
+        ok, msg, merged = registry.check_interface_additive(prior, ids, prefixes, micro, app_ids)
     product.save_interface_contract(merged)   # additive union becomes the new floor
 
 

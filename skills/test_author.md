@@ -47,6 +47,22 @@ fixes the exact set of data-model entities). These are law.
 - **String-presence oracles match SYNTAX, not substrings.** A rule like "X must not be used"
   is asserted against import/call syntax (an AST or a call-shaped regex), because a comment or
   docstring legitimately MENTIONS the rule and must not trip the assertion.
+- **A static/source-contract oracle must assert BEHAVIOUR the code is free to express many
+  ways — never one brittle literal.** A DB-less "grep the source" test corners the engineer
+  (who cannot edit it): a correct-but-differently-shaped implementation then can't pass, and it
+  burns the whole engineer⟷QA loop. Real non-convergence traps to avoid:
+  - **Templated testids.** A `data-testid` is often built from data (`data-testid={`nav-${item.key}`}`),
+    so the literal id (`nav-storefront`) NEVER appears in the source. Assert the KEY/data that
+    yields it (`key: "storefront"`) or the nav-item entry — not the rendered literal string.
+  - **One syntax for a path/href.** A destination appears as JSX (`href="/x"`), an object field
+    (`href: "/x"`), OR a typed variable (`href={item.href}`). Match ALL forms, or assert the
+    INTENT (an on-platform leading-slash path exists; NO external `https?://` / `mailto:` / `tel:`)
+    — not a single `href:`-with-colon regex that misses `href=` and the variable.
+  - **Wrong file.** What you assert may render in a WRAPPER/CONTAINER, not the page/component you
+    named. Read the surface that ACTUALLY renders it (or a small candidate set) — not one
+    hardcoded path.
+  When unsure, assert LESS strictly and lean on the e2e/integration stage for the behavioural
+  proof. A too-strict source grep that a *correct* implementation fails is worse than no oracle.
 
 ## Test data — always use factory functions
 Write a `tests/factories.py` (or `factories.ts` for frontend) with one builder per model.

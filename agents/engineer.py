@@ -375,7 +375,12 @@ def _fail(state, code_path, msg, qa_log, rounds, written=None) -> dict:
 # like an API spec — truncating it starved the engineer of the wiring contract and it built
 # a parallel component. Read it effectively UNTRUNCATED (24000-char safety ceiling only).
 MANIFEST_CAP = 24000
-DESIGN_SPEC_CAP = 16000
+# The design spec IS a wiring CONTRACT too (layout + components + microcopy + STATES the
+# engineer must build), so head-slicing it starves the engineer exactly like a truncated
+# manifest. A full-feature spec legitimately runs large (the P6 storefront spec was 30KB and
+# the tail — carrying the console-nav wiring — was dropped at 16KB). Read it effectively
+# untruncated (40000-char safety ceiling ≈ 10K tokens).
+DESIGN_SPEC_CAP = 40000
 DESIGN_MOCKUP_CAP = 16000
 
 
@@ -398,7 +403,13 @@ WIRING MANIFEST (props contracts + the microcopy the app must show):
 
 Kit rules (hard):
 - Import and use these components for their UI. Pass data/handlers via their props.
-- NEVER modify, rewrite, or re-emit any kit file — they are protected like tests/.
+- NEVER modify, rewrite, or re-emit the DESIGN-OWNED components LISTED ABOVE — they are
+  protected like tests/ (design owns their pixels + words). If one needs a change, that's a
+  design gap: flag it via the clarification protocol, don't fork it.
+- You MAY make a MINIMAL, ADDITIVE WIRING edit to a DIFFERENT, pre-existing kit file when the
+  feature genuinely requires it — e.g. register a new console/nav SECTION (add a key + nav
+  item + its route), add a slot/prop. NEVER rewrite such a file's visuals/structure; keep the
+  edit to the wiring. (A cast/hack that leaves the nav unreachable is not acceptable — wire it.)
 - NEVER build a parallel/duplicate component for something the kit already renders.
 - You own: pages/containers, hooks, state, API calls, routing, non-kit chrome."""
 
